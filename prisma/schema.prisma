@@ -1,0 +1,438 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  fullName     String?   @map("full_name")
+  role         UserRole  @default(USER)
+  isActive     Boolean   @default(true) @map("is_active")
+  avatar       String?
+  preferences  Json?
+  lastLogin    DateTime? @map("last_login")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  authoredArticles    NewsArticle[]     @relation("ArticleAuthor")
+  approvedArticles    NewsArticle[]     @relation("ArticleApprover")
+  favorites           UserFavorite[]
+  advertisements      Advertisement[]
+  approvalHistory     ApprovalHistory[]
+  refreshTokens       RefreshToken[]
+  searchHistory       SearchHistory[]
+  readingHistory      ReadingHistory[]
+  notifications       Notification[]    @relation("UserNotifications")
+  createdNotifications Notification[]   @relation("NotificationCreator")
+  
+  // AI/ML Relations
+  aiArticleViews      AiArticleView[]
+  aiArticleInteractions AiArticleInteraction[]
+  
+  // Time Saver Relations
+  timeSaverViews      TimeSaverView[]
+  timeSaverInteractions TimeSaverInteraction[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model NewsArticle {
+  id             String        @id @default(cuid())
+  headline       String        @db.VarChar(500)
+  briefContent   String?       @map("brief_content") @db.Text
+  fullContent    String?       @map("full_content") @db.LongText
+  category       NewsCategory
+  status         ArticleStatus @default(DRAFT)
+  priorityLevel  Int           @default(0) @map("priority_level")
+  authorId       String        @map("author_id")
+  approvedBy     String?       @map("approved_by")
+  featuredImage  String?       @map("featured_image")
+  tags           String?       @db.Text
+  slug           String?       @unique
+  metaTitle      String?       @map("meta_title")
+  metaDescription String?      @map("meta_description")
+  viewCount      Int           @default(0) @map("view_count")
+  shareCount     Int           @default(0) @map("share_count")
+  publishedAt    DateTime?     @map("published_at")
+  scheduledAt    DateTime?     @map("scheduled_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  author          User                @relation("ArticleAuthor", fields: [authorId], references: [id])
+  approver        User?               @relation("ArticleApprover", fields: [approvedBy], references: [id])
+  favorites       UserFavorite[]
+  approvalHistory ApprovalHistory[]
+  readingHistory  ReadingHistory[]
+
+  @@map("news_articles")
+}
+
+// AI/ML Feature Models
+model AiArticle {
+  id             String   @id @default(cuid())
+  headline       String   @db.VarChar(500)
+  briefContent   String?  @map("brief_content") @db.Text
+  fullContent    String?  @map("full_content") @db.LongText
+  category       String
+  featuredImage  String?  @map("featured_image")
+  tags           String?  @db.Text
+  aiModel        String?  @map("ai_model") // "GPT-4", "Claude", etc.
+  aiApplication  String?  @map("ai_application") // "Chatbot", "Image Gen", etc.
+  companyMentioned String? @map("company_mentioned")
+  technologyType String?  @map("technology_type")
+  viewCount      Int      @default(0) @map("view_count")
+  shareCount     Int      @default(0) @map("share_count")
+  relevanceScore Decimal? @map("relevance_score") @db.Decimal(10, 2)
+  isTrending     Boolean  @default(false) @map("is_trending")
+  publishedAt    DateTime @map("published_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  views          AiArticleView[]
+  interactions   AiArticleInteraction[]
+
+  @@map("ai_articles")
+}
+
+model AiCategory {
+  id           String  @id @default(cuid())
+  name         String  @unique
+  description  String? @db.Text
+  iconUrl      String? @map("icon_url")
+  articleCount Int     @default(0) @map("article_count")
+  isHot        Boolean @default(false) @map("is_hot")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_categories")
+}
+
+model AiArticleView {
+  id        String   @id @default(cuid())
+  articleId String   @map("article_id")
+  userId    String?  @map("user_id")
+  timestamp DateTime @default(now())
+
+  article AiArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user    User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("ai_article_views")
+}
+
+model AiArticleInteraction {
+  id              String              @id @default(cuid())
+  articleId       String              @map("article_id")
+  userId          String?             @map("user_id")
+  interactionType AiInteractionType   @map("interaction_type")
+  timestamp       DateTime            @default(now())
+
+  article AiArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user    User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("ai_article_interactions")
+}
+
+// Time Saver Feature Models
+model TimeSaverContent {
+  id             String            @id @default(cuid())
+  title          String            @db.VarChar(500)
+  summary        String            @db.Text
+  category       String
+  imageUrl       String?           @map("image_url")
+  iconName       String?           @map("icon_name")
+  bgColor        String?           @map("bg_color")
+  keyPoints      String?           @map("key_points") @db.Text // JSON or pipe-separated
+  sourceUrl      String?           @map("source_url")
+  readTimeSeconds Int?             @map("read_time_seconds")
+  viewCount      Int               @default(0) @map("view_count")
+  isPriority     Boolean           @default(false) @map("is_priority")
+  contentType    TimeSaverContentType @map("content_type")
+  publishedAt    DateTime          @map("published_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  views          TimeSaverView[]
+  interactions   TimeSaverInteraction[]
+
+  @@map("time_saver_content")
+}
+
+model QuickUpdate {
+  id              String   @id @default(cuid())
+  title           String   @db.VarChar(500)
+  brief           String?  @db.Text
+  category        String
+  imageUrl        String?  @map("image_url")
+  tags            String?  @db.Text
+  isHot           Boolean  @default(false) @map("is_hot")
+  engagementScore Int      @default(0) @map("engagement_score")
+  timestamp       DateTime @default(now())
+
+  @@map("quick_updates")
+}
+
+model BreakingNews {
+  id        String          @id @default(cuid())
+  title     String          @db.VarChar(500)
+  brief     String?         @db.Text
+  imageUrl  String?         @map("image_url")
+  sourceUrl String?         @map("source_url")
+  priority  BreakingNewsPriority
+  location  String?
+  tags      String?         @db.Text
+  timestamp DateTime        @default(now())
+
+  @@map("breaking_news")
+}
+
+model TimeSaverView {
+  id        String   @id @default(cuid())
+  contentId String   @map("content_id")
+  userId    String?  @map("user_id")
+  timestamp DateTime @default(now())
+
+  content TimeSaverContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user    User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("time_saver_views")
+}
+
+model TimeSaverInteraction {
+  id              String                    @id @default(cuid())
+  contentId       String                    @map("content_id")
+  userId          String?                   @map("user_id")
+  interactionType TimeSaverInteractionType  @map("interaction_type")
+  timestamp       DateTime                  @default(now())
+
+  content TimeSaverContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user    User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("time_saver_interactions")
+}
+
+// Existing models (kept as before)
+model UserFavorite {
+  userId  String   @map("user_id")
+  newsId  String   @map("news_id")
+  savedAt DateTime @default(now()) @map("saved_at")
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article NewsArticle @relation(fields: [newsId], references: [id], onDelete: Cascade)
+
+  @@id([userId, newsId])
+  @@map("user_favorites")
+}
+
+model Advertisement {
+  id          String         @id @default(cuid())
+  title       String
+  content     String?        @db.Text
+  imageUrl    String?        @map("image_url")
+  targetUrl   String?        @map("target_url")
+  position    AdPosition
+  isActive    Boolean        @default(true) @map("is_active")
+  startDate   DateTime       @map("start_date")
+  endDate     DateTime       @map("end_date")
+  budget      Decimal?       @db.Decimal(10, 2)
+  clickCount  Int            @default(0) @map("click_count")
+  impressions Int            @default(0)
+  createdBy   String         @map("created_by")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  creator User @relation(fields: [createdBy], references: [id])
+
+  @@map("advertisements")
+}
+
+model ApprovalHistory {
+  id         String           @id @default(cuid())
+  newsId     String           @map("news_id")
+  approverId String           @map("approver_id")
+  action     ApprovalAction
+  comments   String?          @db.Text
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  article  NewsArticle @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  approver User        @relation(fields: [approverId], references: [id])
+
+  @@map("approval_history")
+}
+
+model SearchHistory {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  query     String
+  results   Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("search_history")
+}
+
+model ReadingHistory {
+  id            String      @id @default(cuid())
+  userId        String      @map("user_id")
+  articleId     String      @map("article_id")
+  timeSpent     Int?        @map("time_spent") // in seconds
+  readProgress  Float       @default(0.0) @map("read_progress") // 0.0 to 1.0
+  lastPosition  Int?        @map("last_position")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@map("reading_history")
+}
+
+model Notification {
+  id        String            @id @default(cuid())
+  userId    String            @map("user_id")
+  type      NotificationType
+  title     String            @db.VarChar(255)
+  message   String            @db.Text
+  data      Json?             // Additional notification data
+  isRead    Boolean           @default(false) @map("is_read")
+  readAt    DateTime?         @map("read_at")
+  createdBy String?           @map("created_by")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  user    User  @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  creator User? @relation("NotificationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+model SystemSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  type      String   @default("string")
+  category  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+// Enums
+enum UserRole {
+  USER
+  EDITOR
+  AD_MANAGER
+  ADMIN
+}
+
+enum NewsCategory {
+  GENERAL
+  NATIONAL
+  INTERNATIONAL
+  POLITICS
+  BUSINESS
+  TECHNOLOGY
+  SCIENCE
+  HEALTH
+  EDUCATION
+  ENVIRONMENT
+  SPORTS
+  ENTERTAINMENT
+  CRIME
+  LIFESTYLE
+  FINANCE
+  FOOD
+  FASHION
+  OTHERS
+}
+
+enum ArticleStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AdPosition {
+  BANNER
+  SIDEBAR
+  INLINE
+  POPUP
+  INTERSTITIAL
+}
+
+enum ApprovalAction {
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+  REVISION_SUBMITTED
+}
+
+enum NotificationType {
+  ARTICLE_APPROVED
+  ARTICLE_REJECTED
+  ARTICLE_PUBLISHED
+  ARTICLE_CHANGES_REQUESTED
+  SYSTEM_ANNOUNCEMENT
+  ACCOUNT_UPDATE
+  PROMOTIONAL
+  SECURITY_ALERT
+}
+
+// New enums for AI/ML and Time Saver features
+enum AiInteractionType {
+  SHARE
+  BOOKMARK
+  LIKE
+  COMMENT
+  DOWNLOAD
+}
+
+enum TimeSaverContentType {
+  DIGEST
+  QUICK_UPDATE
+  BRIEFING
+  SUMMARY
+  HIGHLIGHTS
+}
+
+enum TimeSaverInteractionType {
+  SHARE
+  BOOKMARK
+  LIKE
+  SAVE_FOR_LATER
+  MARK_AS_READ
+}
+
+enum BreakingNewsPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
