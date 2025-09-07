@@ -15,7 +15,7 @@ const logger = require('./src/utils/logger');
 const errorHandler = require('./src/middleware/errorHandler');
 const { cleanupOldNotifications } = require('./src/utils/notifications');
 
-// Import routes
+// Import existing routes
 const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/users');
 const articleRoutes = require('./src/routes/articles');
@@ -28,6 +28,10 @@ const adminRoutes = require('./src/routes/admin');
 const uploadRoutes = require('./src/routes/upload');
 const notificationRoutes = require('./src/routes/notifications');
 const dashboardRoutes = require('./src/routes/dashboard');
+
+// Import new routes
+const aiMlRoutes = require('./src/routes/ai-ml');
+const timeSaverRoutes = require('./src/routes/time-saver');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -54,7 +58,7 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Apply rate limiting to all requests
+// Apply rate limiting to all API requests
 app.use('/api/', limiter);
 
 // Security middleware
@@ -62,7 +66,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration - FIXED for Flutter web development
+// CORS configuration - Enhanced for Flutter web development
 const corsOptions = {
   origin: function (origin, callback) {
     console.log(`CORS request from origin: ${origin}`);
@@ -166,12 +170,14 @@ app.get('/health', (req, res) => {
     services: {
       database: 'connected',
       notifications: 'active',
-      fileUpload: 'available'
+      fileUpload: 'available',
+      aiMlFeatures: 'active',
+      timeSaverFeatures: 'active'
     }
   });
 });
 
-// CORS debug endpoint (development only)
+// CORS test endpoint (development only)
 if (process.env.NODE_ENV !== 'production') {
   app.get('/api/cors-test', (req, res) => {
     res.json({
@@ -184,7 +190,7 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// API routes
+// Existing API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/articles', articleRoutes);
@@ -198,13 +204,18 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
+// New AI/ML and Time Saver API routes
+app.use('/api/ai-ml', aiMlRoutes);
+app.use('/api/time-saver', timeSaverRoutes);
+
 // API documentation endpoint
 app.get('/api', (req, res) => {
   res.json({
     success: true,
-    message: 'Daily News Dashboard API',
-    version: '1.0.0',
+    message: 'Enhanced Daily News Dashboard API with AI/ML and Time Saver Features',
+    version: '2.0.0',
     endpoints: {
+      // Core endpoints
       authentication: '/api/auth',
       users: '/api/users',
       articles: '/api/articles',
@@ -216,7 +227,52 @@ app.get('/api', (req, res) => {
       admin: '/api/admin',
       upload: '/api/upload',
       notifications: '/api/notifications',
-      dashboard: '/api/dashboard'
+      dashboard: '/api/dashboard',
+      
+      // New feature endpoints
+      aiMl: {
+        base: '/api/ai-ml',
+        news: '/api/ai-ml/news',
+        trending: '/api/ai-ml/trending',
+        search: '/api/ai-ml/search',
+        categories: '/api/ai-ml/categories',
+        insights: '/api/ai-ml/insights',
+        popularTopics: '/api/ai-ml/popular-topics'
+      },
+      timeSaver: {
+        base: '/api/time-saver',
+        content: '/api/time-saver/content',
+        stats: '/api/time-saver/stats',
+        trendingUpdates: '/api/time-saver/trending-updates',
+        breakingNews: '/api/time-saver/breaking-news',
+        analytics: '/api/time-saver/analytics',
+        search: '/api/time-saver/search',
+        categories: '/api/time-saver/categories'
+      }
+    },
+    features: {
+      aiMl: {
+        description: 'AI/ML focused news and content',
+        capabilities: [
+          'AI/ML article management',
+          'Trending AI news',
+          'Category-based filtering',
+          'Analytics and insights',
+          'Popular topics tracking',
+          'User interaction tracking'
+        ]
+      },
+      timeSaver: {
+        description: 'Quick digest and summary content',
+        capabilities: [
+          'Time-saving content digests',
+          'Breaking news alerts',
+          'Quick updates',
+          'Content analytics',
+          'Multiple content types',
+          'Priority-based content'
+        ]
+      }
     },
     documentation: 'See README.md for detailed API documentation',
     health: '/health',
@@ -253,13 +309,100 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
 
-  // Update article view count cache every hour (if needed)
+  // Update trending AI/ML articles every hour
   cron.schedule('0 * * * *', async () => {
     try {
-      logger.info('Running hourly maintenance tasks');
-      // Add any hourly maintenance tasks here
+      const prisma = require('./src/config/database');
+      logger.info('Starting trending AI/ML articles update');
+      
+      // Mark articles as trending based on views and relevance in last 24h
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      await prisma.aiArticle.updateMany({
+        where: {
+          publishedAt: { gte: yesterday },
+          viewCount: { gte: 50 } // Threshold for trending
+        },
+        data: { isTrending: true }
+      });
+      
+      // Remove trending status from older articles
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      
+      await prisma.aiArticle.updateMany({
+        where: {
+          publishedAt: { lt: threeDaysAgo },
+          isTrending: true
+        },
+        data: { isTrending: false }
+      });
+      
+      logger.info('Trending AI/ML articles update completed');
     } catch (error) {
-      logger.error('Hourly maintenance task failed:', error);
+      logger.error('Trending update failed:', error);
+    }
+  });
+
+  // Update AI category article counts every 6 hours
+  cron.schedule('0 */6 * * *', async () => {
+    try {
+      const prisma = require('./src/config/database');
+      logger.info('Starting AI category counts update');
+      
+      // Get category counts
+      const categoryCounts = await prisma.aiArticle.groupBy({
+        by: ['category'],
+        _count: { id: true }
+      });
+      
+      // Update each category's article count
+      for (const categoryData of categoryCounts) {
+        await prisma.aiCategory.upsert({
+          where: { name: categoryData.category },
+          update: { articleCount: categoryData._count.id },
+          create: {
+            name: categoryData.category,
+            articleCount: categoryData._count.id,
+            description: `Articles related to ${categoryData.category}`
+          }
+        });
+      }
+      
+      logger.info('AI category counts update completed');
+    } catch (error) {
+      logger.error('Category counts update failed:', error);
+    }
+  });
+
+  // Clean up old views and interactions weekly
+  cron.schedule('0 4 * * 0', async () => {
+    try {
+      const prisma = require('./src/config/database');
+      logger.info('Starting cleanup of old tracking data');
+      
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      
+      const [aiViews, aiInteractions, timeSaverViews, timeSaverInteractions] = await Promise.all([
+        prisma.aiArticleView.deleteMany({
+          where: { timestamp: { lt: sixMonthsAgo } }
+        }),
+        prisma.aiArticleInteraction.deleteMany({
+          where: { timestamp: { lt: sixMonthsAgo } }
+        }),
+        prisma.timeSaverView.deleteMany({
+          where: { timestamp: { lt: sixMonthsAgo } }
+        }),
+        prisma.timeSaverInteraction.deleteMany({
+          where: { timestamp: { lt: sixMonthsAgo } }
+        })
+      ]);
+      
+      logger.info(`Tracking data cleanup completed: ${aiViews.count + aiInteractions.count + timeSaverViews.count + timeSaverInteractions.count} records cleaned`);
+    } catch (error) {
+      logger.error('Tracking data cleanup failed:', error);
     }
   });
 }
@@ -310,7 +453,6 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Close server & exit process
   gracefulShutdown('UNHANDLED_REJECTION');
 });
 
@@ -322,7 +464,7 @@ process.on('uncaughtException', (error) => {
 
 // Start server
 const server = app.listen(PORT, () => {
-  logger.info(`Daily News Dashboard API running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  logger.info(`Enhanced Daily News Dashboard API running on port ${PORT} in ${process.env.NODE_ENV} mode`);
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`API Documentation available at http://localhost:${PORT}/api`);
   console.log(`Health check available at http://localhost:${PORT}/health`);
@@ -333,8 +475,19 @@ const server = app.listen(PORT, () => {
   }
   
   if (process.env.NODE_ENV === 'production') {
-    console.log('Scheduled tasks enabled');
+    console.log('Scheduled tasks enabled for:');
+    console.log('- Notification cleanup (daily at 2 AM)');
+    console.log('- Token cleanup (weekly on Sunday at 3 AM)');
+    console.log('- Trending articles update (hourly)');
+    console.log('- Category counts update (every 6 hours)');
+    console.log('- Tracking data cleanup (weekly on Sunday at 4 AM)');
   }
+  
+  console.log('\n🚀 New Features Available:');
+  console.log('📰 AI/ML News: /api/ai-ml/*');
+  console.log('⏰ Time Saver: /api/time-saver/*');
+  console.log('📊 Enhanced Analytics: /api/analytics/*');
+  console.log('🔍 Advanced Search: /api/search/advanced');
 });
 
 module.exports = app;

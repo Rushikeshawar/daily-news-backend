@@ -153,7 +153,7 @@ model AiArticleInteraction {
   @@map("ai_article_interactions")
 }
 
-// Time Saver Feature Models
+// Time Saver Feature Models - UPDATED WITH MISSING FIELDS
 model TimeSaverContent {
   id             String            @id @default(cuid())
   title          String            @db.VarChar(500)
@@ -171,6 +171,10 @@ model TimeSaverContent {
   publishedAt    DateTime          @map("published_at")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
+  
+  // MISSING FIELDS ADDED:
+  contentGroup   String?           @map("content_group") // For categorization (today_new, breaking_critical, etc.)
+  tags          String?           @db.Text              // Comma-separated tags
 
   // Relations
   views          TimeSaverView[]
@@ -189,6 +193,9 @@ model QuickUpdate {
   isHot           Boolean  @default(false) @map("is_hot")
   engagementScore Int      @default(0) @map("engagement_score")
   timestamp       DateTime @default(now())
+  
+  // MISSING FIELD ADDED:
+  contentGroup   String?  @map("content_group") // For categorization
 
   @@map("quick_updates")
 }
@@ -203,6 +210,9 @@ model BreakingNews {
   location  String?
   tags      String?         @db.Text
   timestamp DateTime        @default(now())
+  
+  // MISSING FIELD ADDED:
+  contentGroup String?      @map("content_group") // For categorization
 
   @@map("breaking_news")
 }

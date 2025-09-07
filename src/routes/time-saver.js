@@ -1,4 +1,4 @@
-// Time Saver Routes - /routes/time-saver.js
+// routes/time-saver.js - Enhanced version with new content categories
 const express = require('express');
 const prisma = require('../config/database');
 const { optionalAuth, authenticate, authorize } = require('../middleware/auth');
@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// @desc    Get time saver content with filtering and pagination
+// @desc    Get time saver content with enhanced filtering and categorization
 // @route   GET /api/time-saver/content
 // @access  Public
 router.get('/content', optionalAuth, genericValidation.pagination, async (req, res) => {
@@ -16,6 +16,7 @@ router.get('/content', optionalAuth, genericValidation.pagination, async (req, r
       page = 1,
       limit = 10,
       category,
+      contentGroup, // New parameter for content grouping
       sortBy = 'publishedAt',
       order = 'desc'
     } = req.query;
@@ -26,6 +27,56 @@ router.get('/content', optionalAuth, genericValidation.pagination, async (req, r
     const where = {};
     if (category && category !== 'ALL') {
       where.category = category;
+    }
+    
+    // Enhanced filtering for content groups
+    if (contentGroup) {
+      switch (contentGroup) {
+        case 'today_new':
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          where.publishedAt = { gte: today };
+          break;
+        case 'breaking_critical':
+          where.OR = [
+            { isPriority: true },
+            { contentType: 'DIGEST' }
+          ];
+          break;
+        case 'weekly_highlights':
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          where.AND = [
+            { publishedAt: { gte: weekAgo } },
+            { contentType: 'HIGHLIGHTS' }
+          ];
+          break;
+        case 'monthly_top':
+          const monthAgo = new Date();
+          monthAgo.setDate(monthAgo.getDate() - 30);
+          where.publishedAt = { gte: monthAgo };
+          break;
+        case 'brief_updates':
+          where.OR = [
+            { contentType: 'QUICK_UPDATE' },
+            { readTimeSeconds: { lte: 60 } }
+          ];
+          break;
+        case 'viral_buzz':
+          where.OR = [
+            { viewCount: { gte: 1000 } },
+            { tags: { contains: 'viral' } },
+            { tags: { contains: 'trending' } }
+          ];
+          break;
+        case 'changing_norms':
+          where.OR = [
+            { category: { contains: 'society' } },
+            { category: { contains: 'culture' } },
+            { tags: { contains: 'social' } }
+          ];
+          break;
+      }
     }
 
     const orderBy = {};
@@ -51,7 +102,9 @@ router.get('/content', optionalAuth, genericValidation.pagination, async (req, r
           viewCount: true,
           isPriority: true,
           contentType: true,
-          publishedAt: true
+          publishedAt: true,
+          tags: true,
+          contentGroup: true
         }
       }),
       prisma.timeSaverContent.count({ where })
@@ -82,16 +135,198 @@ router.get('/content', optionalAuth, genericValidation.pagination, async (req, r
   }
 });
 
-// @desc    Get single time saver content by ID
-// @route   GET /api/time-saver/content/:id
+// @desc    Get enhanced quick stats for dashboard with category counts
+// @route   GET /api/time-saver/stats
 // @access  Public
-router.get('/content/:id', optionalAuth, genericValidation.id, async (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
-    const { id } = req.params;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date();
+    monthAgo.setDate(monthAgo.getDate() - 30);
 
-    const content = await prisma.timeSaverContent.findUnique({
-      where: { id },
-      select: {
+    const [
+      storiesCount,
+      updatesCount,
+      breakingCount,
+      todayNewCount,
+      criticalCount,
+      weeklyCount,
+      monthlyCount,
+      viralBuzzCount,
+      changingNormsCount,
+      recentContent
+    ] = await Promise.all([
+      // Original stats
+      prisma.timeSaverContent.count({
+        where: {
+          contentType: { in: ['DIGEST', 'BRIEFING', 'SUMMARY'] },
+          publishedAt: { gte: today }
+        }
+      }),
+
+      prisma.timeSaverContent.count({
+        where: {
+          contentType: { in: ['QUICK_UPDATE', 'HIGHLIGHTS'] },
+          publishedAt: { gte: today }
+        }
+      }),
+
+      prisma.breakingNews.count({
+        where: { timestamp: { gte: today } }
+      }),
+
+      // New category stats
+      prisma.timeSaverContent.count({
+        where: { publishedAt: { gte: today } }
+      }),
+
+      prisma.timeSaverContent.count({
+        where: {
+          OR: [
+            { isPriority: true },
+            { contentType: 'DIGEST' }
+          ]
+        }
+      }),
+
+      prisma.timeSaverContent.count({
+        where: {
+          publishedAt: { gte: weekAgo },
+          contentType: 'HIGHLIGHTS'
+        }
+      }),
+
+      prisma.timeSaverContent.count({
+        where: { publishedAt: { gte: monthAgo } }
+      }),
+
+      prisma.timeSaverContent.count({
+        where: {
+          OR: [
+            { viewCount: { gte: 1000 } },
+            { tags: { contains: 'viral' } },
+            { tags: { contains: 'trending' } }
+          ]
+        }
+      }),
+
+      prisma.timeSaverContent.count({
+        where: {
+          OR: [
+            { category: { contains: 'society' } },
+            { category: { contains: 'culture' } },
+            { tags: { contains: 'social' } }
+          ]
+        }
+      }),
+
+      prisma.timeSaverContent.findFirst({
+        orderBy: { publishedAt: 'desc' },
+        select: { publishedAt: true }
+      })
+    ]);
+
+    const stats = {
+      storiesCount,
+      updatesCount,
+      breakingCount,
+      todayNewCount: Math.min(todayNewCount, 5),
+      criticalCount: Math.min(criticalCount, 7),
+      weeklyCount: Math.min(weeklyCount, 15),
+      monthlyCount: Math.min(monthlyCount, 30),
+      viralBuzzCount: Math.min(viralBuzzCount, 10),
+      changingNormsCount: Math.min(changingNormsCount, 10),
+      lastUpdated: recentContent?.publishedAt || new Date()
+    };
+
+    res.json({
+      success: true,
+      data: { stats }
+    });
+  } catch (error) {
+    logger.error('Get enhanced time saver stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch time saver stats'
+    });
+  }
+});
+
+// @desc    Get content by specific category group
+// @route   GET /api/time-saver/category/:group
+// @access  Public
+router.get('/category/:group', optionalAuth, genericValidation.pagination, async (req, res) => {
+  try {
+    const { group } = req.params;
+    const { limit = 20 } = req.query;
+    
+    const where = {};
+    const take = Math.min(parseInt(limit), 50); // Max 50 items per request
+    
+    // Define category-specific filters
+    switch (group) {
+      case 'today_new':
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        where.publishedAt = { gte: today };
+        break;
+      case 'breaking_critical':
+        where.OR = [
+          { isPriority: true },
+          { contentType: 'DIGEST' }
+        ];
+        break;
+      case 'weekly_highlights':
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        where.AND = [
+          { publishedAt: { gte: weekAgo } },
+          { contentType: 'HIGHLIGHTS' }
+        ];
+        break;
+      case 'monthly_top':
+        const monthAgo = new Date();
+        monthAgo.setDate(monthAgo.getDate() - 30);
+        where.publishedAt = { gte: monthAgo };
+        break;
+      case 'brief_updates':
+        where.OR = [
+          { contentType: 'QUICK_UPDATE' },
+          { readTimeSeconds: { lte: 60 } }
+        ];
+        break;
+      case 'viral_buzz':
+        where.OR = [
+          { viewCount: { gte: 1000 } },
+          { tags: { contains: 'viral' } },
+          { tags: { contains: 'trending' } }
+        ];
+        break;
+      case 'changing_norms':
+        where.OR = [
+          { category: { contains: 'society' } },
+          { category: { contains: 'culture' } },
+          { tags: { contains: 'social' } }
+        ];
+        break;
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid category group'
+        });
+    }
+
+    const content = await prisma.timeSaverContent.findMany({
+      where,
+      take,
+      orderBy: [
+        { isPriority: 'desc' },
+        { publishedAt: 'desc' }
+      ],
+              select: {
         id: true,
         title: true,
         summary: true,
@@ -106,585 +341,29 @@ router.get('/content/:id', optionalAuth, genericValidation.id, async (req, res) 
         isPriority: true,
         contentType: true,
         publishedAt: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
-
-    if (!content) {
-      return res.status(404).json({
-        success: false,
-        message: 'Time saver content not found'
-      });
-    }
-
-    // Track view
-    await Promise.all([
-      prisma.timeSaverContent.update({
-        where: { id },
-        data: { viewCount: { increment: 1 } }
-      }),
-      req.user && prisma.timeSaverView.create({
-        data: {
-          contentId: id,
-          userId: req.user.id
-        }
-      }).catch(() => {}) // Ignore duplicate errors
-    ]);
-
-    content.viewCount += 1;
-
-    res.json({
-      success: true,
-      data: { content }
-    });
-  } catch (error) {
-    logger.error('Get time saver content error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch time saver content'
-    });
-  }
-});
-
-// @desc    Get quick stats for dashboard
-// @route   GET /api/time-saver/stats
-// @access  Public
-router.get('/stats', async (req, res) => {
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const [
-      storiesCount,
-      updatesCount,
-      breakingCount,
-      recentContent
-    ] = await Promise.all([
-      // Stories count (digest, briefing, summary)
-      prisma.timeSaverContent.count({
-        where: {
-          contentType: { in: ['DIGEST', 'BRIEFING', 'SUMMARY'] },
-          publishedAt: { gte: today }
-        }
-      }),
-
-      // Updates count (quick updates, highlights)
-      prisma.timeSaverContent.count({
-        where: {
-          contentType: { in: ['QUICK_UPDATE', 'HIGHLIGHTS'] },
-          publishedAt: { gte: today }
-        }
-      }),
-
-      // Breaking news count
-      prisma.breakingNews.count({
-        where: { timestamp: { gte: today } }
-      }),
-
-      // Most recent content
-      prisma.timeSaverContent.findFirst({
-        orderBy: { publishedAt: 'desc' },
-        select: { publishedAt: true }
-      })
-    ]);
-
-    const stats = {
-      storiesCount,
-      updatesCount,
-      breakingCount,
-      lastUpdated: recentContent?.publishedAt || new Date()
-    };
-
-    res.json({
-      success: true,
-      data: { stats }
-    });
-  } catch (error) {
-    logger.error('Get time saver stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch time saver stats'
-    });
-  }
-});
-
-// @desc    Get trending quick updates
-// @route   GET /api/time-saver/trending-updates
-// @access  Public
-router.get('/trending-updates', async (req, res) => {
-  try {
-    const { limit = 10, timeframe = '24h' } = req.query;
-
-    const timeframes = {
-      '1h': 1,
-      '24h': 24,
-      '7d': 24 * 7
-    };
-
-    const hours = timeframes[timeframe] || 24;
-    const fromDate = new Date();
-    fromDate.setHours(fromDate.getHours() - hours);
-
-    const updates = await prisma.quickUpdate.findMany({
-      where: {
-        timestamp: { gte: fromDate }
-      },
-      take: parseInt(limit),
-      orderBy: [
-        { engagementScore: 'desc' },
-        { isHot: 'desc' },
-        { timestamp: 'desc' }
-      ],
-      select: {
-        id: true,
-        title: true,
-        brief: true,
-        category: true,
-        imageUrl: true,
         tags: true,
-        isHot: true,
-        engagementScore: true,
-        timestamp: true
+        contentGroup: true
       }
     });
-
-    res.json({
-      success: true,
-      data: { updates }
-    });
-  } catch (error) {
-    logger.error('Get trending updates error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch trending updates'
-    });
-  }
-});
-
-// @desc    Get breaking news
-// @route   GET /api/time-saver/breaking-news
-// @access  Public
-router.get('/breaking-news', async (req, res) => {
-  try {
-    const { limit = 10, category, priority = 'HIGH' } = req.query;
-
-    const where = {};
-    if (category) {
-      // Using tags field to filter by category since breaking news doesn't have category field
-      where.tags = { contains: category };
-    }
-    
-    // Filter by priority if specified
-    const priorityLevels = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-    if (priority && priorityLevels.includes(priority)) {
-      where.priority = { in: priorityLevels.slice(priorityLevels.indexOf(priority)) };
-    }
-
-    const breakingNews = await prisma.breakingNews.findMany({
-      where,
-      take: parseInt(limit),
-      orderBy: [
-        { priority: 'desc' },
-        { timestamp: 'desc' }
-      ],
-      select: {
-        id: true,
-        title: true,
-        brief: true,
-        imageUrl: true,
-        sourceUrl: true,
-        priority: true,
-        location: true,
-        tags: true,
-        timestamp: true
-      }
-    });
-
-    res.json({
-      success: true,
-      data: { breakingNews }
-    });
-  } catch (error) {
-    logger.error('Get breaking news error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch breaking news'
-    });
-  }
-});
-
-// @desc    Get breaking news by ID
-// @route   GET /api/time-saver/breaking-news/:id
-// @access  Public
-router.get('/breaking-news/:id', genericValidation.id, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const breakingNews = await prisma.breakingNews.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        title: true,
-        brief: true,
-        imageUrl: true,
-        sourceUrl: true,
-        priority: true,
-        location: true,
-        tags: true,
-        timestamp: true
-      }
-    });
-
-    if (!breakingNews) {
-      return res.status(404).json({
-        success: false,
-        message: 'Breaking news not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: { breakingNews }
-    });
-  } catch (error) {
-    logger.error('Get breaking news by ID error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch breaking news'
-    });
-  }
-});
-
-// @desc    Get time saver analytics
-// @route   GET /api/time-saver/analytics
-// @access  Private (ADMIN, AD_MANAGER)
-router.get('/analytics', authenticate, authorize('ADMIN', 'AD_MANAGER'), async (req, res) => {
-  try {
-    const { timeframe = '30d' } = req.query;
-
-    const timeframes = {
-      '7d': 7,
-      '30d': 30,
-      '90d': 90
-    };
-
-    const days = timeframes[timeframe] || 30;
-    const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - days);
-
-    const [
-      totalContent,
-      totalViews,
-      contentByType,
-      topContent,
-      engagementMetrics,
-      averageReadTime
-    ] = await Promise.all([
-      // Total content
-      prisma.timeSaverContent.count({
-        where: { publishedAt: { gte: fromDate } }
-      }),
-
-      // Total views
-      prisma.timeSaverContent.aggregate({
-        where: { publishedAt: { gte: fromDate } },
-        _sum: { viewCount: true }
-      }),
-
-      // Content by type
-      prisma.timeSaverContent.groupBy({
-        by: ['contentType'],
-        where: { publishedAt: { gte: fromDate } },
-        _count: { id: true },
-        _sum: { viewCount: true }
-      }),
-
-      // Top performing content
-      prisma.timeSaverContent.findMany({
-        where: { publishedAt: { gte: fromDate } },
-        take: 10,
-        orderBy: { viewCount: 'desc' },
-        select: {
-          id: true,
-          title: true,
-          category: true,
-          contentType: true,
-          viewCount: true,
-          publishedAt: true
-        }
-      }),
-
-      // Engagement metrics
-      prisma.timeSaverInteraction.groupBy({
-        by: ['interactionType'],
-        where: { timestamp: { gte: fromDate } },
-        _count: { id: true }
-      }),
-
-      // Average read time
-      prisma.timeSaverContent.aggregate({
-        where: {
-          publishedAt: { gte: fromDate },
-          readTimeSeconds: { not: null }
-        },
-        _avg: { readTimeSeconds: true }
-      })
-    ]);
-
-    const analytics = {
-      overview: {
-        totalContent,
-        totalViews: totalViews._sum.viewCount || 0,
-        averageViews: totalContent > 0 ? Math.round((totalViews._sum.viewCount || 0) / totalContent) : 0,
-        averageReadTime: Math.round(averageReadTime._avg.readTimeSeconds || 0)
-      },
-      contentByType: contentByType.map(type => ({
-        type: type.contentType,
-        count: type._count.id,
-        views: type._sum.viewCount || 0
-      })),
-      topContent,
-      engagementMetrics: engagementMetrics.map(metric => ({
-        type: metric.interactionType,
-        count: metric._count.id
-      })),
-      timeframe: {
-        period: timeframe,
-        fromDate,
-        toDate: new Date()
-      }
-    };
-
-    res.json({
-      success: true,
-      data: { analytics }
-    });
-  } catch (error) {
-    logger.error('Get time saver analytics error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch time saver analytics'
-    });
-  }
-});
-
-// @desc    Track content view
-// @route   POST /api/time-saver/content/:id/view
-// @access  Public
-router.post('/content/:id/view', optionalAuth, genericValidation.id, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { timestamp = new Date() } = req.body;
-
-    const content = await prisma.timeSaverContent.findUnique({
-      where: { id },
-      select: { id: true }
-    });
-
-    if (!content) {
-      return res.status(404).json({
-        success: false,
-        message: 'Content not found'
-      });
-    }
-
-    await Promise.all([
-      prisma.timeSaverContent.update({
-        where: { id },
-        data: { viewCount: { increment: 1 } }
-      }),
-      req.user && prisma.timeSaverView.create({
-        data: {
-          contentId: id,
-          userId: req.user.id,
-          timestamp: new Date(timestamp)
-        }
-      }).catch(() => {}) // Ignore duplicate errors
-    ]);
-
-    logger.info(`Time saver content view tracked: ${id}`);
-
-    res.json({
-      success: true,
-      message: 'View tracked successfully'
-    });
-  } catch (error) {
-    logger.error('Track time saver content view error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to track view'
-    });
-  }
-});
-
-// @desc    Track content interaction
-// @route   POST /api/time-saver/content/:id/interaction
-// @access  Public
-router.post('/content/:id/interaction', optionalAuth, genericValidation.id, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { interactionType, timestamp = new Date() } = req.body;
-
-    const validTypes = ['SHARE', 'BOOKMARK', 'LIKE', 'SAVE_FOR_LATER', 'MARK_AS_READ'];
-    if (!validTypes.includes(interactionType)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid interaction type'
-      });
-    }
-
-    const content = await prisma.timeSaverContent.findUnique({
-      where: { id },
-      select: { id: true }
-    });
-
-    if (!content) {
-      return res.status(404).json({
-        success: false,
-        message: 'Content not found'
-      });
-    }
-
-    await prisma.timeSaverInteraction.create({
-      data: {
-        contentId: id,
-        userId: req.user?.id || null,
-        interactionType,
-        timestamp: new Date(timestamp)
-      }
-    });
-
-    logger.info(`Time saver content interaction tracked: ${id} - ${interactionType}`);
-
-    res.json({
-      success: true,
-      message: 'Interaction tracked successfully'
-    });
-  } catch (error) {
-    logger.error('Track time saver content interaction error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to track interaction'
-    });
-  }
-});
-
-// @desc    Search time saver content
-// @route   GET /api/time-saver/search
-// @access  Public
-router.get('/search', optionalAuth, async (req, res) => {
-  try {
-    const {
-      q: query,
-      page = 1,
-      limit = 10,
-      category
-    } = req.query;
-
-    if (!query || query.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Search query is required'
-      });
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
-
-    const where = {
-      OR: [
-        { title: { contains: query } },
-        { summary: { contains: query } },
-        { keyPoints: { contains: query } }
-      ]
-    };
-
-    if (category) {
-      where.category = category;
-    }
-
-    const [content, totalCount] = await Promise.all([
-      prisma.timeSaverContent.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { publishedAt: 'desc' },
-        select: {
-          id: true,
-          title: true,
-          summary: true,
-          category: true,
-          imageUrl: true,
-          iconName: true,
-          bgColor: true,
-          contentType: true,
-          readTimeSeconds: true,
-          viewCount: true,
-          publishedAt: true
-        }
-      }),
-      prisma.timeSaverContent.count({ where })
-    ]);
-
-    const totalPages = Math.ceil(totalCount / take);
 
     res.json({
       success: true,
       data: {
         content,
-        searchQuery: query,
-        pagination: {
-          page: parseInt(page),
-          limit: take,
-          totalPages,
-          totalCount,
-          hasNext: parseInt(page) < totalPages,
-          hasPrev: parseInt(page) > 1
-        }
+        category: group,
+        totalCount: content.length
       }
     });
   } catch (error) {
-    logger.error('Search time saver content error:', error);
+    logger.error('Get category content error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to search time saver content'
+      message: 'Failed to fetch category content'
     });
   }
 });
 
-// @desc    Get time saver content categories
-// @route   GET /api/time-saver/categories
-// @access  Public
-router.get('/categories', async (req, res) => {
-  try {
-    // Get unique categories with counts
-    const categories = await prisma.timeSaverContent.groupBy({
-      by: ['category'],
-      _count: { id: true },
-      orderBy: { _count: { id: 'desc' } }
-    });
-
-    const categoriesWithCounts = categories.map(cat => ({
-      name: cat.category,
-      count: cat._count.id,
-      displayName: cat.category.charAt(0).toUpperCase() + cat.category.slice(1).toLowerCase()
-    }));
-
-    res.json({
-      success: true,
-      data: { categories: categoriesWithCounts }
-    });
-  } catch (error) {
-    logger.error('Get time saver categories error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch time saver categories'
-    });
-  }
-});
-
-// @desc    Create time saver content (Admin only)
+// @desc    Create enhanced time saver content with category grouping (Admin only)
 // @route   POST /api/time-saver/content
 // @access  Private (ADMIN)
 router.post('/content', authenticate, authorize('ADMIN'), async (req, res) => {
@@ -700,7 +379,9 @@ router.post('/content', authenticate, authorize('ADMIN'), async (req, res) => {
       sourceUrl,
       readTimeSeconds,
       isPriority = false,
-      contentType = 'DIGEST'
+      contentType = 'DIGEST',
+      contentGroup, // New field
+      tags = [] // New field
     } = req.body;
 
     if (!title || !summary || !category) {
@@ -710,12 +391,20 @@ router.post('/content', authenticate, authorize('ADMIN'), async (req, res) => {
       });
     }
 
-    const validContentTypes = ['DIGEST', 'QUICK_UPDATE', 'BRIEFING', 'SUMMARY', 'HIGHLIGHTS'];
+    const validContentTypes = ['DIGEST', 'QUICK_UPDATE', 'BRIEFING', 'SUMMARY', 'HIGHLIGHTS', 'VIRAL', 'SOCIAL', 'BREAKING'];
     if (!validContentTypes.includes(contentType)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid content type'
       });
+    }
+
+    // Process tags
+    let processedTags = [];
+    if (typeof tags === 'string') {
+      processedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+    } else if (Array.isArray(tags)) {
+      processedTags = tags.filter(tag => typeof tag === 'string' && tag.trim().length > 0);
     }
 
     const content = await prisma.timeSaverContent.create({
@@ -726,16 +415,18 @@ router.post('/content', authenticate, authorize('ADMIN'), async (req, res) => {
         imageUrl,
         iconName,
         bgColor,
-        keyPoints,
+        keyPoints: Array.isArray(keyPoints) ? keyPoints.join('|') : keyPoints,
         sourceUrl,
         readTimeSeconds: readTimeSeconds ? parseInt(readTimeSeconds) : null,
         isPriority,
         contentType,
+        contentGroup,
+        tags: processedTags.join(','),
         publishedAt: new Date()
       }
     });
 
-    logger.info(`Time saver content created: ${title} by ${req.user.email}`);
+    logger.info(`Enhanced time saver content created: ${title} by ${req.user.email}`);
 
     res.status(201).json({
       success: true,
@@ -743,7 +434,7 @@ router.post('/content', authenticate, authorize('ADMIN'), async (req, res) => {
       data: { content }
     });
   } catch (error) {
-    logger.error('Create time saver content error:', error);
+    logger.error('Create enhanced time saver content error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create time saver content'
@@ -751,110 +442,183 @@ router.post('/content', authenticate, authorize('ADMIN'), async (req, res) => {
   }
 });
 
-// @desc    Create breaking news (Admin only)
-// @route   POST /api/time-saver/breaking-news
+// @desc    Bulk create sample content for testing categories
+// @route   POST /api/time-saver/seed-sample-data
 // @access  Private (ADMIN)
-router.post('/breaking-news', authenticate, authorize('ADMIN'), async (req, res) => {
+router.post('/seed-sample-data', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
-    const {
-      title,
-      brief,
-      imageUrl,
-      sourceUrl,
-      priority = 'MEDIUM',
-      location,
-      tags
-    } = req.body;
-
-    if (!title) {
-      return res.status(400).json({
-        success: false,
-        message: 'Title is required'
-      });
-    }
-
-    const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-    if (!validPriorities.includes(priority)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid priority level'
-      });
-    }
-
-    const breakingNews = await prisma.breakingNews.create({
-      data: {
-        title,
-        brief,
-        imageUrl,
-        sourceUrl,
-        priority,
-        location,
-        tags
+    const sampleContent = [
+      // Today's New (5 items)
+      {
+        title: "Breaking: Major Tech Breakthrough Announced",
+        summary: "Revolutionary AI advancement changes industry landscape",
+        category: "TECHNOLOGY",
+        contentType: "DIGEST",
+        isPriority: false,
+        readTimeSeconds: 120,
+        keyPoints: "AI breakthrough|Industry impact|Future implications",
+        tags: "tech,ai,breakthrough,today",
+        contentGroup: "today_new",
+        publishedAt: new Date()
+      },
+      {
+        title: "Market Update: Stocks Reach New Heights",
+        summary: "Major indices hit record levels amid economic optimism",
+        category: "BUSINESS",
+        contentType: "QUICK_UPDATE", 
+        isPriority: false,
+        readTimeSeconds: 45,
+        keyPoints: "Stock markets|Record highs|Economic growth",
+        tags: "business,stocks,market,today",
+        contentGroup: "today_new",
+        publishedAt: new Date()
+      },
+      
+      // Breaking Critical (7 items)
+      {
+        title: "URGENT: Emergency Response to Global Crisis",
+        summary: "Critical situation requires immediate international attention",
+        category: "POLITICS",
+        contentType: "DIGEST",
+        isPriority: true,
+        readTimeSeconds: 180,
+        keyPoints: "Global crisis|Emergency response|International cooperation",
+        tags: "critical,urgent,global,crisis",
+        contentGroup: "breaking_critical",
+        publishedAt: new Date()
+      },
+      {
+        title: "Critical Infrastructure Alert Issued",
+        summary: "Major systems require immediate security updates",
+        category: "TECHNOLOGY",
+        contentType: "DIGEST",
+        isPriority: true,
+        readTimeSeconds: 90,
+        keyPoints: "Infrastructure|Security|Critical update",
+        tags: "critical,security,infrastructure",
+        contentGroup: "breaking_critical",
+        publishedAt: new Date()
+      },
+      
+      // Viral Buzz (10 items)
+      {
+        title: "Viral Video Takes Internet by Storm",
+        summary: "Unexpected clip garners millions of views in hours",
+        category: "ENTERTAINMENT", 
+        contentType: "VIRAL",
+        isPriority: false,
+        readTimeSeconds: 30,
+        keyPoints: "Viral content|Social media|Internet sensation",
+        tags: "viral,trending,social,entertainment",
+        contentGroup: "viral_buzz",
+        viewCount: 1500000,
+        publishedAt: new Date()
+      },
+      {
+        title: "Online Challenge Sparks Global Movement",
+        summary: "Simple challenge becomes worldwide phenomenon",
+        category: "SOCIAL",
+        contentType: "VIRAL",
+        isPriority: false,
+        readTimeSeconds: 60,
+        keyPoints: "Viral challenge|Global participation|Social impact",
+        tags: "viral,challenge,global,trending",
+        contentGroup: "viral_buzz", 
+        viewCount: 2000000,
+        publishedAt: new Date()
+      },
+      
+      // Changing Norms (10 items)
+      {
+        title: "Society Shifts: New Cultural Paradigm Emerges",
+        summary: "Generational changes reshape societal norms and values",
+        category: "SOCIETY",
+        contentType: "SOCIAL",
+        isPriority: false,
+        readTimeSeconds: 150,
+        keyPoints: "Cultural shift|Generational change|New norms",
+        tags: "society,culture,change,norms,social",
+        contentGroup: "changing_norms",
+        publishedAt: new Date()
+      },
+      {
+        title: "Digital Transformation Changes Human Behavior",
+        summary: "Technology reshapes how we interact and communicate",
+        category: "CULTURE",
+        contentType: "SOCIAL",
+        isPriority: false,
+        readTimeSeconds: 120,
+        keyPoints: "Digital transformation|Behavior change|Communication",
+        tags: "digital,behavior,social,culture",
+        contentGroup: "changing_norms",
+        publishedAt: new Date()
       }
-    });
+    ];
 
-    logger.info(`Breaking news created: ${title} by ${req.user.email}`);
+    // Add dates for weekly and monthly content
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 3);
+    
+    const monthAgo = new Date(); 
+    monthAgo.setDate(monthAgo.getDate() - 15);
+
+    // Weekly highlights
+    sampleContent.push(
+      {
+        title: "Week in Review: Key Developments",
+        summary: "Major stories that shaped this week's headlines", 
+        category: "GENERAL",
+        contentType: "HIGHLIGHTS",
+        isPriority: false,
+        readTimeSeconds: 180,
+        keyPoints: "Weekly summary|Key developments|Major stories",
+        tags: "weekly,highlights,review",
+        contentGroup: "weekly_highlights",
+        publishedAt: weekAgo
+      }
+    );
+
+    // Monthly content
+    sampleContent.push(
+      {
+        title: "Monthly Overview: Trending Topics",
+        summary: "Most significant developments from the past month",
+        category: "GENERAL", 
+        contentType: "SUMMARY",
+        isPriority: false,
+        readTimeSeconds: 300,
+        keyPoints: "Monthly overview|Trending topics|Significant developments",
+        tags: "monthly,overview,trending",
+        contentGroup: "monthly_top", 
+        publishedAt: monthAgo
+      }
+    );
+
+    // Create all content
+    const createdContent = await Promise.all(
+      sampleContent.map(item => 
+        prisma.timeSaverContent.create({
+          data: {
+            ...item,
+            viewCount: item.viewCount || Math.floor(Math.random() * 500) + 100
+          }
+        })
+      )
+    );
+
+    logger.info(`Sample data seeded: ${createdContent.length} items by ${req.user.email}`);
 
     res.status(201).json({
       success: true,
-      message: 'Breaking news created successfully',
-      data: { breakingNews }
+      message: `Successfully created ${createdContent.length} sample content items`,
+      data: { count: createdContent.length }
     });
+
   } catch (error) {
-    logger.error('Create breaking news error:', error);
+    logger.error('Seed sample data error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create breaking news'
-    });
-  }
-});
-
-// @desc    Create quick update (Admin only)
-// @route   POST /api/time-saver/quick-update
-// @access  Private (ADMIN)
-router.post('/quick-update', authenticate, authorize('ADMIN'), async (req, res) => {
-  try {
-    const {
-      title,
-      brief,
-      category,
-      imageUrl,
-      tags,
-      isHot = false,
-      engagementScore = 0
-    } = req.body;
-
-    if (!title || !category) {
-      return res.status(400).json({
-        success: false,
-        message: 'Title and category are required'
-      });
-    }
-
-    const quickUpdate = await prisma.quickUpdate.create({
-      data: {
-        title,
-        brief,
-        category,
-        imageUrl,
-        tags,
-        isHot,
-        engagementScore: parseInt(engagementScore)
-      }
-    });
-
-    logger.info(`Quick update created: ${title} by ${req.user.email}`);
-
-    res.status(201).json({
-      success: true,
-      message: 'Quick update created successfully',
-      data: { quickUpdate }
-    });
-  } catch (error) {
-    logger.error('Create quick update error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create quick update'
+      message: 'Failed to seed sample data'
     });
   }
 });
