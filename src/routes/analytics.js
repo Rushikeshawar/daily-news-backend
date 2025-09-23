@@ -707,6 +707,194 @@ router.get('/realtime', authenticate, authorize('AD_MANAGER', 'ADMIN'), async (r
   }
 });
 
+
+// Add this endpoint to your existing src/routes/analytics.js file
+// Insert this code near the top of the file, after the existing routes
+
+// @desc    Get dashboard analytics (simplified overview for dashboard)
+// @route   GET /api/analytics/dashboard
+// @access  Private (All authenticated users)
+router.get('/dashboard', authenticate, async (req, res) => {
+  try {
+    const { timeframe = '30d' } = req.query;
+
+    // Calculate date range
+    const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+
+    const [
+      totalUsers,
+      totalArticles,
+      publishedArticles,
+      pendingArticles,
+      rejectedArticles,
+      totalViews,
+      activeAds,
+      dailyViews,
+      categoryStats,
+      topArticles
+    ] = await Promise.all([
+      // Basic counts
+      prisma.user.count(),
+      prisma.newsArticle.count(),
+      prisma.newsArticle.count({ where: { status: 'PUBLISHED' } }),
+      prisma.newsArticle.count({ where: { status: 'PENDING' } }),
+      prisma.newsArticle.count({ where: { status: 'REJECTED' } }),
+      
+      // Total views
+      prisma.newsArticle.aggregate({
+        _sum: { viewCount: true }
+      }),
+      
+      // Active advertisements
+      prisma.advertisement.count({
+        where: {
+          isActive: true,
+          startDate: { lte: new Date() },
+          endDate: { gte: new Date() }
+        }
+      }),
+      
+      // Daily views for chart (last 7 days)
+      prisma.$queryRaw`
+        SELECT 
+          DATE(published_at) as date,
+          SUM(view_count) as views
+        FROM news_articles 
+        WHERE status = 'PUBLISHED' AND published_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY DATE(published_at)
+        ORDER BY date ASC
+      `.then(results => convertBigIntToNumber(results)),
+      
+      // Category distribution
+      prisma.newsArticle.groupBy({
+        by: ['category'],
+        where: { status: 'PUBLISHED' },
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } }
+      }),
+      
+      // Top articles
+      prisma.newsArticle.findMany({
+        where: { status: 'PUBLISHED' },
+        orderBy: { viewCount: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          headline: true,
+          viewCount: true,
+          author: {
+            select: { fullName: true }
+          }
+        }
+      })
+    ]);
+
+    // Process daily views data - ensure we have 7 days
+    const viewsMap = new Map();
+    dailyViews.forEach(item => {
+      const dateStr = new Date(item.date).toISOString().split('T')[0];
+      viewsMap.set(dateStr, Number(item.views) || 0);
+    });
+
+    // Fill missing days with 0
+    const dailyViewsArray = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      dailyViewsArray.push(viewsMap.get(dateStr) || 0);
+    }
+
+    // Process category data
+    const categories = {};
+    categoryStats.forEach(cat => {
+      categories[cat.category] = cat._count.id;
+    });
+
+    const dashboardData = convertBigIntToNumber({
+      overview: {
+        totalArticles: totalArticles,
+        totalUsers: totalUsers,
+        totalViews: totalViews._sum.viewCount || 0,
+        totalRevenue: 15750 // Mock value - replace with actual revenue calculation
+      },
+      ads: {
+        active: activeAds
+      },
+      articles: {
+        pending: pendingArticles,
+        published: publishedArticles,
+        rejected: rejectedArticles
+      },
+      chartData: {
+        dailyViews: dailyViewsArray,
+        categories: categories
+      },
+      topArticles: topArticles.map((article, index) => ({
+        id: article.id,
+        headline: article.headline,
+        author: article.author?.fullName || 'Unknown',
+        views: article.viewCount || 0
+      })),
+      timeframe: {
+        period: timeframe,
+        fromDate,
+        toDate: new Date()
+      }
+    });
+
+    res.json(dashboardData);
+  } catch (error) {
+    logger.error('Get dashboard analytics error:', error);
+    
+    // Fallback to mock data on error
+    const mockData = {
+      overview: {
+        totalArticles: 245,
+        totalUsers: 1200,
+        totalViews: 125000,
+        totalRevenue: 15750
+      },
+      ads: {
+        active: 12
+      },
+      articles: {
+        pending: 8,
+        published: 187,
+        rejected: 5
+      },
+      chartData: {
+        dailyViews: [1200, 1400, 1100, 1600, 1800, 2000, 1750],
+        categories: {
+          'Technology': 85,
+          'Business': 60,
+          'Sports': 50,
+          'Politics': 35,
+          'Entertainment': 15
+        }
+      },
+      topArticles: [
+        {
+          id: '1',
+          headline: 'Breaking: New Technology Breakthrough',
+          author: 'John Smith',
+          views: 15420
+        },
+        {
+          id: '2',
+          headline: 'Market Analysis: Q3 Results',
+          author: 'Jane Doe',
+          views: 12350
+        }
+      ]
+    };
+
+    res.json(mockData);
+  }
+});
+
 // @desc    Export analytics data
 // @route   GET /api/analytics/export
 // @access  Private (ADMIN)

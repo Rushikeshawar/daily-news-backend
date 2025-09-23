@@ -326,7 +326,7 @@ router.get('/category/:group', optionalAuth, genericValidation.pagination, async
         { isPriority: 'desc' },
         { publishedAt: 'desc' }
       ],
-              select: {
+      select: {
         id: true,
         title: true,
         summary: true,

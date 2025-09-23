@@ -1,4 +1,4 @@
-// AI/ML Routes - /routes/ai-ml.js
+// AI/ML Routes - /routes/ai-ml.js (Updated permissions)
 const express = require('express');
 const prisma = require('../config/database');
 const { optionalAuth, authenticate, authorize } = require('../middleware/auth');
@@ -578,7 +578,7 @@ router.post('/articles/:id/interaction', optionalAuth, genericValidation.id, asy
 
 // @desc    Get AI insights and analytics
 // @route   GET /api/ai-ml/insights
-// @access  Private (ADMIN, AD_MANAGER)
+// @access  Private (ADMIN view-only, AD_MANAGER can view)
 router.get('/insights', authenticate, authorize('ADMIN', 'AD_MANAGER'), async (req, res) => {
   try {
     const { timeframe = '30d' } = req.query;
@@ -709,10 +709,10 @@ router.get('/insights', authenticate, authorize('ADMIN', 'AD_MANAGER'), async (r
   }
 });
 
-// @desc    Create AI/ML article (Admin only)
+// @desc    Create AI/ML article (EDITOR and AD_MANAGER can create, ADMIN view-only)
 // @route   POST /api/ai-ml/news
-// @access  Private (ADMIN)
-router.post('/news', authenticate, authorize('ADMIN'), async (req, res) => {
+// @access  Private (EDITOR, AD_MANAGER)
+router.post('/news', authenticate, authorize('EDITOR', 'AD_MANAGER'), async (req, res) => {
   try {
     const {
       headline,
@@ -750,11 +750,13 @@ router.post('/news', authenticate, authorize('ADMIN'), async (req, res) => {
         technologyType,
         relevanceScore: relevanceScore ? parseFloat(relevanceScore) : null,
         isTrending,
-        publishedAt: new Date()
+        publishedAt: new Date(),
+        createdBy: req.user.id, // Track who created it
+        authorId: req.user.id
       }
     });
 
-    logger.info(`AI/ML article created: ${headline} by ${req.user.email}`);
+    logger.info(`AI/ML article created: ${headline} by ${req.user.email} (${req.user.role})`);
 
     res.status(201).json({
       success: true,
@@ -766,6 +768,117 @@ router.post('/news', authenticate, authorize('ADMIN'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create AI/ML article'
+    });
+  }
+});
+
+// @desc    Update AI/ML article (EDITOR and AD_MANAGER can update, ADMIN view-only)
+// @route   PUT /api/ai-ml/news/:id
+// @access  Private (EDITOR, AD_MANAGER)
+router.put('/news/:id', authenticate, authorize('EDITOR', 'AD_MANAGER'), genericValidation.id, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      headline,
+      briefContent,
+      fullContent,
+      category,
+      featuredImage,
+      tags,
+      aiModel,
+      aiApplication,
+      companyMentioned,
+      technologyType,
+      relevanceScore,
+      isTrending
+    } = req.body;
+
+    // Check if article exists
+    const existingArticle = await prisma.aiArticle.findUnique({
+      where: { id },
+      select: { id: true, headline: true }
+    });
+
+    if (!existingArticle) {
+      return res.status(404).json({
+        success: false,
+        message: 'AI/ML article not found'
+      });
+    }
+
+    const updateData = {};
+    if (headline !== undefined) updateData.headline = headline;
+    if (briefContent !== undefined) updateData.briefContent = briefContent;
+    if (fullContent !== undefined) updateData.fullContent = fullContent;
+    if (category !== undefined) updateData.category = category;
+    if (featuredImage !== undefined) updateData.featuredImage = featuredImage;
+    if (tags !== undefined) updateData.tags = tags;
+    if (aiModel !== undefined) updateData.aiModel = aiModel;
+    if (aiApplication !== undefined) updateData.aiApplication = aiApplication;
+    if (companyMentioned !== undefined) updateData.companyMentioned = companyMentioned;
+    if (technologyType !== undefined) updateData.technologyType = technologyType;
+    if (relevanceScore !== undefined) updateData.relevanceScore = parseFloat(relevanceScore);
+    if (isTrending !== undefined) updateData.isTrending = isTrending;
+    
+    updateData.updatedAt = new Date();
+    updateData.updatedBy = req.user.id;
+
+    const article = await prisma.aiArticle.update({
+      where: { id },
+      data: updateData
+    });
+
+    logger.info(`AI/ML article updated: ${id} by ${req.user.email} (${req.user.role})`);
+
+    res.json({
+      success: true,
+      message: 'AI/ML article updated successfully',
+      data: { article }
+    });
+  } catch (error) {
+    logger.error('Update AI/ML article error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update AI/ML article'
+    });
+  }
+});
+
+// @desc    Delete AI/ML article (EDITOR and AD_MANAGER can delete, ADMIN view-only)
+// @route   DELETE /api/ai-ml/news/:id
+// @access  Private (EDITOR, AD_MANAGER)
+router.delete('/news/:id', authenticate, authorize('EDITOR', 'AD_MANAGER'), genericValidation.id, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if article exists
+    const existingArticle = await prisma.aiArticle.findUnique({
+      where: { id },
+      select: { id: true, headline: true }
+    });
+
+    if (!existingArticle) {
+      return res.status(404).json({
+        success: false,
+        message: 'AI/ML article not found'
+      });
+    }
+
+    await prisma.aiArticle.delete({
+      where: { id }
+    });
+
+    logger.info(`AI/ML article deleted: ${id} by ${req.user.email} (${req.user.role})`);
+
+    res.json({
+      success: true,
+      message: 'AI/ML article deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Delete AI/ML article error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete AI/ML article'
     });
   }
 });

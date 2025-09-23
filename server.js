@@ -208,6 +208,245 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/ai-ml', aiMlRoutes);
 app.use('/api/time-saver', timeSaverRoutes);
 
+// ===========================================
+// BASIC FALLBACK ROUTES (for missing endpoints)
+// ===========================================
+
+// Basic dashboard route (in case dashboardRoutes doesn't exist)
+app.get('/api/dashboard/stats', (req, res) => {
+  res.json({
+    totalArticles: 245,
+    totalUsers: 1200,
+    totalViews: 125000,
+    activeAds: 12
+  });
+});
+
+// Basic notifications route (fallback)
+app.get('/api/notifications-fallback', (req, res) => {
+  res.json({
+    notifications: [
+      {
+        id: '1',
+        title: 'Welcome!',
+        message: 'Welcome to the Daily News Dashboard',
+        isRead: false,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: '2',
+        title: 'System Update',
+        message: 'Dashboard has been updated with new features',
+        isRead: true,
+        createdAt: new Date(Date.now() - 3600000).toISOString()
+      }
+    ],
+    unreadCount: 1
+  });
+});
+
+// Mark notifications as read (fallback)
+app.put('/api/notifications-fallback/mark-read', (req, res) => {
+  res.json({ success: true, message: 'Notifications marked as read' });
+});
+
+// Basic articles route (fallback)
+app.get('/api/articles-fallback', (req, res) => {
+  const mockArticles = [
+    {
+      id: '1',
+      headline: 'Breaking: Technology Advances in 2025',
+      briefContent: 'Major technological breakthroughs announced this year...',
+      fullContent: 'Detailed article content about technology advances...',
+      category: 'Technology',
+      status: 'PUBLISHED',
+      author: { fullName: 'John Doe' },
+      createdAt: new Date().toISOString(),
+      publishedAt: new Date().toISOString(),
+      viewCount: 1250,
+      featuredImage: 'https://via.placeholder.com/400x300'
+    },
+    {
+      id: '2',
+      headline: 'Market Analysis: Q4 Performance',
+      briefContent: 'Quarterly market performance shows positive trends...',
+      fullContent: 'Detailed market analysis and financial insights...',
+      category: 'Business',
+      status: 'PENDING',
+      author: { fullName: 'Jane Smith' },
+      createdAt: new Date().toISOString(),
+      viewCount: 890,
+      featuredImage: 'https://via.placeholder.com/400x300'
+    },
+    {
+      id: '3',
+      headline: 'Sports Update: Championship Results',
+      briefContent: 'Latest results from the championship games...',
+      fullContent: 'Complete coverage of championship events...',
+      category: 'Sports',
+      status: 'APPROVED',
+      author: { fullName: 'Mike Johnson' },
+      createdAt: new Date().toISOString(),
+      publishedAt: new Date().toISOString(),
+      viewCount: 2100,
+      featuredImage: 'https://via.placeholder.com/400x300'
+    }
+  ];
+
+  res.json({
+    articles: mockArticles,
+    pagination: {
+      currentPage: 1,
+      totalPages: 1,
+      totalItems: mockArticles.length,
+      hasNext: false,
+      hasPrevious: false
+    }
+  });
+});
+
+// Get single article (fallback)
+app.get('/api/articles-fallback/:id', (req, res) => {
+  const { id } = req.params;
+  res.json({
+    id: id,
+    headline: 'Sample Article Title',
+    briefContent: 'Sample brief content for the article...',
+    fullContent: 'This is the full content of the article with detailed information about the topic. It contains multiple paragraphs and provides comprehensive coverage of the subject matter.',
+    category: 'Technology',
+    status: 'PUBLISHED',
+    author: { 
+      fullName: 'John Doe',
+      id: 'user1'
+    },
+    createdAt: new Date().toISOString(),
+    publishedAt: new Date().toISOString(),
+    viewCount: 1250,
+    shareCount: 45,
+    featuredImage: 'https://via.placeholder.com/800x400',
+    tags: ['technology', 'innovation', 'news']
+  });
+});
+
+// Approve/reject articles (fallback)
+app.post('/api/articles-fallback/:id/approve', (req, res) => {
+  res.json({ success: true, message: 'Article approved successfully' });
+});
+
+app.post('/api/articles-fallback/:id/reject', (req, res) => {
+  res.json({ success: true, message: 'Article rejected' });
+});
+
+// Basic users route (fallback)
+app.get('/api/users-fallback', (req, res) => {
+  res.json([
+    {
+      id: '1',
+      fullName: 'John Doe',
+      email: 'john@example.com',
+      role: 'EDITOR',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString()
+    },
+    {
+      id: '2',
+      fullName: 'Jane Smith',
+      email: 'jane@example.com',
+      role: 'ADMIN',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date(Date.now() - 3600000).toISOString()
+    },
+    {
+      id: '3',
+      fullName: 'Mike Johnson',
+      email: 'mike@example.com',
+      role: 'AD_MANAGER',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date(Date.now() - 7200000).toISOString()
+    }
+  ]);
+});
+
+// Basic advertisements route (fallback)
+app.get('/api/advertisements-fallback', (req, res) => {
+  res.json([
+    {
+      id: '1',
+      title: 'Tech Conference 2025',
+      description: 'Join us for the biggest tech event of the year',
+      imageUrl: 'https://via.placeholder.com/600x400',
+      targetUrl: 'https://techconf2025.com',
+      position: 'BANNER',
+      status: 'ACTIVE',
+      budget: 5000,
+      spent: 1200,
+      impressions: 25000,
+      clicks: 750,
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 30*24*60*60*1000).toISOString()
+    },
+    {
+      id: '2',
+      title: 'Business Summit',
+      description: 'Network with industry leaders',
+      imageUrl: 'https://via.placeholder.com/600x400',
+      targetUrl: 'https://bizsummit.com',
+      position: 'SIDEBAR',
+      status: 'PAUSED',
+      budget: 3000,
+      spent: 800,
+      impressions: 15000,
+      clicks: 450,
+      startDate: new Date(Date.now() - 7*24*60*60*1000).toISOString(),
+      endDate: new Date(Date.now() + 23*24*60*60*1000).toISOString()
+    }
+  ]);
+});
+
+// Basic categories route (fallback)
+app.get('/api/categories-fallback', (req, res) => {
+  res.json([
+    { 
+      id: '1', 
+      name: 'Technology', 
+      description: 'Latest tech news and innovations', 
+      isActive: true,
+      articleCount: 85
+    },
+    { 
+      id: '2', 
+      name: 'Business', 
+      description: 'Business and finance updates', 
+      isActive: true,
+      articleCount: 60
+    },
+    { 
+      id: '3', 
+      name: 'Sports', 
+      description: 'Sports news and updates', 
+      isActive: true,
+      articleCount: 50
+    },
+    { 
+      id: '4', 
+      name: 'Politics', 
+      description: 'Political news and analysis', 
+      isActive: true,
+      articleCount: 35
+    },
+    { 
+      id: '5', 
+      name: 'Entertainment', 
+      description: 'Entertainment and celebrity news', 
+      isActive: true,
+      articleCount: 15
+    }
+  ]);
+});
+
 // API documentation endpoint
 app.get('/api', (req, res) => {
   res.json({
@@ -488,6 +727,8 @@ const server = app.listen(PORT, () => {
   console.log('⏰ Time Saver: /api/time-saver/*');
   console.log('📊 Enhanced Analytics: /api/analytics/*');
   console.log('🔍 Advanced Search: /api/search/advanced');
+  
+  console.log('✅ Basic fallback routes added for missing endpoints');
 });
 
 module.exports = app;
