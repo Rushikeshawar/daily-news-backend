@@ -47,19 +47,41 @@ requiredDirs.forEach(dir => {
 // Trust proxy for rate limiting behind reverse proxy
 app.set('trust proxy', 1);
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Rate limiting - ONLY FOR PRODUCTION
+if (process.env.NODE_ENV === 'production') {
+  console.log('🔒 Rate limiting ENABLED for production');
+  
+  // General API rate limiter for production
+  const generalLimiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+    message: {
+      success: false,
+      error: 'Too many requests from this IP, please try again later.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
 
-// Apply rate limiting to all API requests
-app.use('/api/', limiter);
+  // Auth-specific rate limiter for production
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // Only 5 login attempts per 15 minutes in production
+    message: {
+      success: false,
+      error: 'Too many authentication attempts, please try again later.'
+    },
+    skipSuccessfulRequests: true,
+  });
+
+  // Apply rate limiting to all API requests in production
+  app.use('/api/', generalLimiter);
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+} else {
+  console.log('🔓 Rate limiting DISABLED for development');
+  console.log('   No 429 errors will occur during development');
+}
 
 // Security middleware
 app.use(helmet({
@@ -91,6 +113,7 @@ const corsOptions = {
     // Get allowed origins from environment variable or use defaults
     const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || [
       'http://localhost:3000',
+      'http://localhost:3001',
       'http://localhost:8080',
       'http://localhost:4200',
     ];
@@ -167,6 +190,7 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV,
+    rateLimiting: process.env.NODE_ENV === 'production' ? 'enabled' : 'disabled',
     services: {
       database: 'connected',
       notifications: 'active',
@@ -185,7 +209,8 @@ if (process.env.NODE_ENV !== 'production') {
       message: 'CORS is working!',
       origin: req.headers.origin,
       userAgent: req.headers['user-agent'],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      rateLimiting: 'disabled'
     });
   });
 }
@@ -453,6 +478,11 @@ app.get('/api', (req, res) => {
     success: true,
     message: 'Enhanced Daily News Dashboard API with AI/ML and Time Saver Features',
     version: '2.0.0',
+    rateLimiting: {
+      status: process.env.NODE_ENV === 'production' ? 'enabled' : 'disabled',
+      environment: process.env.NODE_ENV,
+      note: process.env.NODE_ENV !== 'production' ? 'Rate limiting is disabled in development to prevent 429 errors' : 'Rate limiting is active in production'
+    },
     endpoints: {
       // Core endpoints
       authentication: '/api/auth',
@@ -519,7 +549,7 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Scheduled tasks
+// Scheduled tasks - Only in production
 if (process.env.NODE_ENV === 'production') {
   // Clean up old notifications daily at 2 AM
   cron.schedule('0 2 * * *', async () => {
@@ -584,66 +614,9 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
 
-  // Update AI category article counts every 6 hours
-  cron.schedule('0 */6 * * *', async () => {
-    try {
-      const prisma = require('./src/config/database');
-      logger.info('Starting AI category counts update');
-      
-      // Get category counts
-      const categoryCounts = await prisma.aiArticle.groupBy({
-        by: ['category'],
-        _count: { id: true }
-      });
-      
-      // Update each category's article count
-      for (const categoryData of categoryCounts) {
-        await prisma.aiCategory.upsert({
-          where: { name: categoryData.category },
-          update: { articleCount: categoryData._count.id },
-          create: {
-            name: categoryData.category,
-            articleCount: categoryData._count.id,
-            description: `Articles related to ${categoryData.category}`
-          }
-        });
-      }
-      
-      logger.info('AI category counts update completed');
-    } catch (error) {
-      logger.error('Category counts update failed:', error);
-    }
-  });
-
-  // Clean up old views and interactions weekly
-  cron.schedule('0 4 * * 0', async () => {
-    try {
-      const prisma = require('./src/config/database');
-      logger.info('Starting cleanup of old tracking data');
-      
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      
-      const [aiViews, aiInteractions, timeSaverViews, timeSaverInteractions] = await Promise.all([
-        prisma.aiArticleView.deleteMany({
-          where: { timestamp: { lt: sixMonthsAgo } }
-        }),
-        prisma.aiArticleInteraction.deleteMany({
-          where: { timestamp: { lt: sixMonthsAgo } }
-        }),
-        prisma.timeSaverView.deleteMany({
-          where: { timestamp: { lt: sixMonthsAgo } }
-        }),
-        prisma.timeSaverInteraction.deleteMany({
-          where: { timestamp: { lt: sixMonthsAgo } }
-        })
-      ]);
-      
-      logger.info(`Tracking data cleanup completed: ${aiViews.count + aiInteractions.count + timeSaverViews.count + timeSaverInteractions.count} records cleaned`);
-    } catch (error) {
-      logger.error('Tracking data cleanup failed:', error);
-    }
-  });
+  console.log('Scheduled tasks enabled for production environment');
+} else {
+  console.log('Scheduled tasks disabled in development environment');
 }
 
 // 404 handler
@@ -710,16 +683,11 @@ const server = app.listen(PORT, () => {
   
   if (process.env.NODE_ENV !== 'production') {
     console.log(`CORS test endpoint: http://localhost:${PORT}/api/cors-test`);
-    console.log('Development mode: All localhost origins allowed for CORS');
-  }
-  
-  if (process.env.NODE_ENV === 'production') {
-    console.log('Scheduled tasks enabled for:');
-    console.log('- Notification cleanup (daily at 2 AM)');
-    console.log('- Token cleanup (weekly on Sunday at 3 AM)');
-    console.log('- Trending articles update (hourly)');
-    console.log('- Category counts update (every 6 hours)');
-    console.log('- Tracking data cleanup (weekly on Sunday at 4 AM)');
+    console.log('🔓 Development mode: All localhost origins allowed for CORS');
+    console.log('🔓 Rate limiting is DISABLED - No 429 errors will occur');
+  } else {
+    console.log('🔒 Production mode: Rate limiting enabled');
+    console.log('🔒 CORS restricted to configured origins');
   }
   
   console.log('\n🚀 New Features Available:');
@@ -729,6 +697,13 @@ const server = app.listen(PORT, () => {
   console.log('🔍 Advanced Search: /api/search/advanced');
   
   console.log('✅ Basic fallback routes added for missing endpoints');
+  
+  if (process.env.NODE_ENV === 'production') {
+    console.log('\n📅 Scheduled tasks enabled for:');
+    console.log('- Notification cleanup (daily at 2 AM)');
+    console.log('- Token cleanup (weekly on Sunday at 3 AM)');
+    console.log('- Trending articles update (hourly)');
+  }
 });
 
 module.exports = app;

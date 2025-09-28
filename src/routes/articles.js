@@ -832,6 +832,68 @@ router.post('/:id/share', genericValidation.id, async (req, res) => {
   }
 });
 
+// @desc    Track article view (explicit endpoint)
+// @route   POST /api/articles/:id/view
+// @access  Public
+router.post('/:id/view', optionalAuth, genericValidation.id, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { timestamp = new Date() } = req.body || {};
+
+    const article = await prisma.newsArticle.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        viewCount: true
+      }
+    });
+
+    if (!article) {
+      return res.status(404).json({
+        success: false,
+        message: 'Article not found'
+      });
+    }
+
+    // Only increment views for published articles (matches GET behavior)
+    if (article.status === 'PUBLISHED') {
+      await prisma.newsArticle.update({
+        where: { id },
+        data: { viewCount: { increment: 1 } }
+      });
+
+      // Track reading history if user is authenticated
+      if (req.user) {
+        await prisma.readingHistory.upsert({
+          where: {
+            userId_articleId: {
+              userId: req.user.id,
+              articleId: id
+            }
+          },
+          update: { updatedAt: new Date(timestamp) },
+          create: {
+            userId: req.user.id,
+            articleId: id
+          }
+        }).catch(() => {});
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'View tracked successfully'
+    });
+  } catch (error) {
+    logger.error('Track article view error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to track view'
+    });
+  }
+});
+
 // @desc    Get trending articles
 // @route   GET /api/articles/trending/list
 // @access  Public
