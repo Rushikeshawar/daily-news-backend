@@ -434,3 +434,11 @@ For support, please email support@dailynews.com or create an issue in the reposi
 ---
 
 **Made with ❤️ for the Daily News Platform**
+
+
+
+Login Credentials:
+   Admin: admin@newsplatform.com / password123
+   AD Manager: admanager@newsplatform.com / password123
+   Editor: editor1@newsplatform.com / password123
+   User: user1@example.com / password123

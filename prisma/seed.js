@@ -1,714 +1,752 @@
+// scripts/seed.js
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
+// Working placeholder image URLs
+const IMAGES = {
+  avatars: {
+    admin: 'https://i.pravatar.cc/150?img=12',
+    admanager: 'https://i.pravatar.cc/150?img=33',
+    editor1: 'https://i.pravatar.cc/150?img=68',
+    editor2: 'https://i.pravatar.cc/150?img=47',
+    user1: 'https://i.pravatar.cc/150?img=25',
+    user2: 'https://i.pravatar.cc/150?img=56',
+    user3: 'https://i.pravatar.cc/150?img=31'
+  },
+  articles: {
+    aiHealthcare: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800',
+    climateSummit: 'https://images.unsplash.com/photo-1569163139394-de4798aa62b5?w=800',
+    stockMarket: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800',
+    mediterraneanDiet: 'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=800',
+    marsMission: 'https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?w=800',
+    educationReform: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800'
+  },
+  ai: {
+    gpt5: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
+    computerVision: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
+    drugDiscovery: 'https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=800'
+  },
+  timesaver: {
+    aiHealthQuick: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=600',
+    climateBrief: 'https://images.unsplash.com/photo-1569163139599-0f4517e36f51?w=600',
+    marketsSurge: 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=600',
+    dietWeekly: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600',
+    spaceWeekly: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=600',
+    gpt5Viral: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=600',
+    selfDrivingBrief: 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
+    aiMedicineMonth: 'https://images.unsplash.com/photo-1579154204601-01588f351e67?w=600',
+    remoteWork: 'https://images.unsplash.com/photo-1587825140708-dfaf72ae4b04?w=600'
+  },
+  breaking: {
+    techAcquisition: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800',
+    gdpGrowth: 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=800'
+  },
+  ads: {
+    newsletter: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&h=300',
+    cloudServices: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&h=600'
+  },
+  icons: {
+    aiModels: 'https://api.iconify.design/mdi/robot.svg',
+    computerVision: 'https://api.iconify.design/mdi/eye-outline.svg',
+    healthcareAi: 'https://api.iconify.design/mdi/heart-pulse.svg',
+    nlp: 'https://api.iconify.design/mdi/message-text.svg',
+    robotics: 'https://api.iconify.design/mdi/robot-industrial.svg'
+  }
+};
+
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('Starting database seeding...\n');
 
-  // Create admin user
-  const adminPassword = await bcrypt.hash('admin123!', 12);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@dailynews.com' },
-    update: {},
-    create: {
-      email: 'admin@dailynews.com',
-      passwordHash: adminPassword,
-      fullName: 'System Administrator',
+  // Clear existing data
+  console.log('Clearing existing data...');
+  await prisma.timeSaverInteraction.deleteMany({});
+  await prisma.timeSaverView.deleteMany({});
+  await prisma.aiArticleInteraction.deleteMany({});
+  await prisma.aiArticleView.deleteMany({});
+  await prisma.timeSaverContent.deleteMany({});
+  await prisma.breakingNews.deleteMany({});
+  await prisma.quickUpdate.deleteMany({});
+  await prisma.aiArticle.deleteMany({});
+  await prisma.aiCategory.deleteMany({});
+  await prisma.readingHistory.deleteMany({});
+  await prisma.searchHistory.deleteMany({});
+  await prisma.approvalHistory.deleteMany({});
+  await prisma.userFavorite.deleteMany({});
+  await prisma.advertisement.deleteMany({});
+  await prisma.notification.deleteMany({});
+  await prisma.newsArticle.deleteMany({});
+  await prisma.refreshToken.deleteMany({});
+  await prisma.systemSettings.deleteMany({});
+  await prisma.user.deleteMany({});
+  console.log('Existing data cleared\n');
+
+  // 1. Create Users
+  console.log('Creating users...');
+  const hashedPassword = await bcrypt.hash('password123', 10);
+
+  const admin = await prisma.user.create({
+    data: {
+      email: 'admin@newsplatform.com',
+      passwordHash: hashedPassword,
+      fullName: 'Admin User',
       role: 'ADMIN',
-      isActive: true
+      isActive: true,
+      avatar: IMAGES.avatars.admin,
+      lastLogin: new Date()
     }
   });
 
-  // Create ad manager
-  const adManagerPassword = await bcrypt.hash('manager123!', 12);
-  const adManager = await prisma.user.upsert({
-    where: { email: 'admanager@dailynews.com' },
-    update: {},
-    create: {
-      email: 'admanager@dailynews.com',
-      passwordHash: adManagerPassword,
-      fullName: 'Advertisement Manager',
+  const adManager = await prisma.user.create({
+    data: {
+      email: 'admanager@newsplatform.com',
+      passwordHash: hashedPassword,
+      fullName: 'Ad Manager',
       role: 'AD_MANAGER',
-      isActive: true
+      isActive: true,
+      avatar: IMAGES.avatars.admanager,
+      lastLogin: new Date()
     }
   });
 
-  // Create editor
-  const editorPassword = await bcrypt.hash('editor123!', 12);
-  const editor = await prisma.user.upsert({
-    where: { email: 'editor@dailynews.com' },
-    update: {},
-    create: {
-      email: 'editor@dailynews.com',
-      passwordHash: editorPassword,
-      fullName: 'Content Editor',
+  const editor1 = await prisma.user.create({
+    data: {
+      email: 'editor1@newsplatform.com',
+      passwordHash: hashedPassword,
+      fullName: 'John Editor',
       role: 'EDITOR',
-      isActive: true
+      isActive: true,
+      avatar: IMAGES.avatars.editor1,
+      lastLogin: new Date()
     }
   });
 
-  // Create regular user
-  const userPassword = await bcrypt.hash('user123!', 12);
-  const user = await prisma.user.upsert({
-    where: { email: 'user@dailynews.com' },
-    update: {},
-    create: {
-      email: 'user@dailynews.com',
-      passwordHash: userPassword,
-      fullName: 'Regular User',
-      role: 'USER',
-      isActive: true
+  const editor2 = await prisma.user.create({
+    data: {
+      email: 'editor2@newsplatform.com',
+      passwordHash: hashedPassword,
+      fullName: 'Sarah Writer',
+      role: 'EDITOR',
+      isActive: true,
+      avatar: IMAGES.avatars.editor2,
+      lastLogin: new Date()
     }
   });
 
-  console.log('👥 Users created:', { admin, adManager, editor, user });
+  const users = await prisma.user.createMany({
+    data: [
+      {
+        email: 'user1@example.com',
+        passwordHash: hashedPassword,
+        fullName: 'Alice Reader',
+        role: 'USER',
+        isActive: true,
+        avatar: IMAGES.avatars.user1
+      },
+      {
+        email: 'user2@example.com',
+        passwordHash: hashedPassword,
+        fullName: 'Bob Smith',
+        role: 'USER',
+        isActive: true,
+        avatar: IMAGES.avatars.user2
+      },
+      {
+        email: 'user3@example.com',
+        passwordHash: hashedPassword,
+        fullName: 'Carol Johnson',
+        role: 'USER',
+        isActive: true,
+        avatar: IMAGES.avatars.user3
+      }
+    ]
+  });
+  console.log(`Created ${3 + users.count} users\n`);
 
-  // Create sample articles with real images from Unsplash
-  const sampleArticles = [
-    {
-      headline: 'Breaking: Major Technology Breakthrough in AI Research',
-      briefContent: 'Scientists have announced a significant advancement in artificial intelligence that could revolutionize computing.',
-      fullContent: 'In a groundbreaking announcement today, researchers at leading technology institutions have revealed a major breakthrough in artificial intelligence research. This development promises to enhance machine learning capabilities and could have far-reaching implications for various industries including healthcare, finance, and autonomous systems. The research team, led by renowned AI scientists, spent over three years developing this innovative approach that significantly improves processing efficiency while reducing computational costs. Early tests show promising results with applications ranging from medical diagnosis to predictive analytics. Industry experts believe this breakthrough could accelerate the adoption of AI technologies across multiple sectors.',
+  // 2. Create News Articles
+  console.log('Creating news articles...');
+  
+  const article1 = await prisma.newsArticle.create({
+    data: {
+      headline: 'Revolutionary AI Breakthrough in Healthcare',
+      briefContent: 'Scientists announce major advancement in AI-powered disease detection',
+      fullContent: 'In a groundbreaking development, researchers have created an AI system that can detect diseases with 99% accuracy. This breakthrough could revolutionize early diagnosis and save millions of lives globally. The system uses advanced machine learning algorithms to analyze medical imaging and patient data with unprecedented precision.',
       category: 'TECHNOLOGY',
       status: 'PUBLISHED',
-      authorId: editor.id,
-      approvedBy: adManager.id,
-      publishedAt: new Date(),
       priorityLevel: 8,
-      tags: 'AI, technology, research, breakthrough',
-      slug: 'major-technology-breakthrough-ai-research',
-      metaTitle: 'Breaking: Major Technology Breakthrough in AI Research',
-      metaDescription: 'Scientists announce significant AI advancement that could revolutionize computing and various industries.',
-      featuredImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=400&fit=crop',
-      viewCount: 1250,
-      shareCount: 45
-    },
-    {
-      headline: 'Global Climate Summit Reaches Historic Agreement',
-      briefContent: 'World leaders commit to ambitious climate goals in unprecedented international cooperation effort.',
-      fullContent: 'World leaders from over 150 countries have reached a historic agreement at the Global Climate Summit, committing to unprecedented measures to combat climate change. The agreement includes binding targets for carbon emission reductions, massive investments in renewable energy infrastructure, and comprehensive support for developing nations transitioning to clean energy. Environmental scientists and policy experts are calling this the most significant climate accord since the Paris Agreement. The summit, held over five days of intensive negotiations, addressed critical issues including deforestation, ocean conservation, and sustainable agriculture practices. Implementation of these measures is expected to begin immediately, with regular progress reviews scheduled annually.',
-      category: 'ENVIRONMENT',
-      status: 'PUBLISHED',
-      authorId: editor.id,
+      authorId: editor1.id,
       approvedBy: adManager.id,
-      publishedAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
-      priorityLevel: 9,
-      tags: 'climate, environment, global summit, agreement',
-      slug: 'global-climate-summit-historic-agreement',
-      metaTitle: 'Global Climate Summit Reaches Historic Agreement',
-      metaDescription: 'World leaders commit to ambitious climate goals in unprecedented international cooperation effort.',
-      featuredImage: 'https://images.unsplash.com/photo-1569163139394-de4e4f43e4e5?w=800&h=400&fit=crop',
-      viewCount: 2100,
-      shareCount: 87
-    },
-    {
-      headline: 'Stock Market Hits Record High Amid Economic Recovery',
-      briefContent: 'Major indices reach all-time highs as economic indicators show strong recovery momentum.',
-      fullContent: 'The stock market reached unprecedented heights today as major indices closed at record levels, reflecting growing investor confidence in the ongoing economic recovery. The benchmark index gained 2.3% in trading, with technology and healthcare sectors leading the rally. Economic analysts attribute this surge to positive employment data, robust corporate earnings, and optimistic projections for continued growth. Consumer spending has increased significantly over the past quarter, while inflation rates remain within target ranges. Federal Reserve officials have indicated cautious optimism about the economic trajectory, though they emphasize the need for continued monitoring of key indicators. Market participants are closely watching upcoming earnings reports and policy announcements for further direction.',
-      category: 'BUSINESS',
-      status: 'PUBLISHED',
-      authorId: editor.id,
-      approvedBy: adManager.id,
-      publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-      priorityLevel: 6,
-      tags: 'stock market, economy, business, finance',
-      slug: 'stock-market-record-high-economic-recovery',
-      metaTitle: 'Stock Market Hits Record High Amid Economic Recovery',
-      metaDescription: 'Major indices reach all-time highs as economic indicators show strong recovery momentum.',
-      featuredImage: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=400&fit=crop',
-      viewCount: 890,
-      shareCount: 32
-    },
-    {
-      headline: 'Revolutionary Medical Treatment Shows Promise in Clinical Trials',
-      briefContent: 'New gene therapy demonstrates remarkable results in treating previously incurable genetic disorders.',
-      fullContent: 'A revolutionary gene therapy treatment has shown extraordinary promise in Phase III clinical trials, offering hope for patients with previously incurable genetic disorders. The treatment, developed over a decade of research, uses advanced CRISPR technology to correct genetic mutations at the cellular level. Trial results published in leading medical journals show a 95% success rate in treating the target condition, with minimal side effects reported. Medical professionals are hailing this as a potential game-changer in personalized medicine. The therapy has received fast-track designation from regulatory authorities and could be available to patients within the next two years. Research teams are now exploring applications for other genetic conditions, potentially benefiting millions of patients worldwide.',
-      category: 'HEALTH',
-      status: 'PUBLISHED',
-      authorId: editor.id,
-      approvedBy: adManager.id,
-      publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-      priorityLevel: 7,
-      tags: 'medicine, gene therapy, clinical trials, health',
-      slug: 'revolutionary-medical-treatment-clinical-trials',
-      metaTitle: 'Revolutionary Medical Treatment Shows Promise in Clinical Trials',
-      metaDescription: 'New gene therapy demonstrates remarkable results in treating previously incurable genetic disorders.',
-      featuredImage: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800&h=400&fit=crop',
-      viewCount: 1450,
-      shareCount: 78
-    },
-    {
-      headline: 'Championship Victory Sparks City-Wide Celebrations',
-      briefContent: 'Local team achieves historic win in dramatic championship final, bringing joy to millions of fans.',
-      fullContent: 'The city erupted in celebration last night as the local team secured a dramatic victory in the championship final, ending a decades-long drought and bringing immense joy to millions of devoted fans. The thrilling match went into overtime, with the winning goal scored in the final minutes of play. Team captain Maria Rodriguez was named MVP after an outstanding performance throughout the tournament. Fans gathered in the city center for spontaneous celebrations that continued well into the early morning hours. The victory represents not just athletic achievement but also community unity and perseverance. Local businesses reported record sales as fans purchased commemorative merchandise. The team is scheduled for a victory parade through the city center next week, with hundreds of thousands expected to attend.',
-      category: 'SPORTS',
-      status: 'PUBLISHED',
-      authorId: editor.id,
-      approvedBy: adManager.id,
-      publishedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000), // 4 days ago
-      priorityLevel: 5,
-      tags: 'sports, championship, victory, celebration',
-      slug: 'championship-victory-city-wide-celebrations',
-      metaTitle: 'Championship Victory Sparks City-Wide Celebrations',
-      metaDescription: 'Local team achieves historic win in dramatic championship final, bringing joy to millions of fans.',
-      featuredImage: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=400&fit=crop',
-      viewCount: 3200,
-      shareCount: 156
-    },
-    {
-      headline: 'Education Reform Initiative Shows Promising Early Results',
-      briefContent: 'New teaching methods and curriculum changes demonstrate significant improvements in student outcomes.',
-      fullContent: 'A comprehensive education reform initiative implemented across multiple school districts is showing highly promising results in its first year of implementation. The program, which focuses on personalized learning approaches and modern curriculum standards, has led to significant improvements in student engagement and academic performance. Test scores have increased by an average of 15% compared to previous years, while student satisfaction surveys show marked improvement in learning experiences. Teachers report increased job satisfaction and better classroom dynamics. The initiative includes enhanced teacher training, updated learning materials, and integration of technology in educational processes. Parent involvement has also increased substantially, with more families participating in school activities and student support programs. Education officials are considering expanding the program to additional districts based on these encouraging outcomes.',
-      category: 'EDUCATION',
-      status: 'PUBLISHED',
-      authorId: editor.id,
-      approvedBy: adManager.id,
-      publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
-      priorityLevel: 4,
-      tags: 'education, reform, students, teaching',
-      slug: 'education-reform-initiative-promising-results',
-      metaTitle: 'Education Reform Initiative Shows Promising Early Results',
-      metaDescription: 'New teaching methods and curriculum changes demonstrate significant improvements in student outcomes.',
-      featuredImage: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800&h=400&fit=crop',
-      viewCount: 680,
-      shareCount: 28
+      featuredImage: IMAGES.articles.aiHealthcare,
+      tags: 'AI, Healthcare, Technology, Innovation',
+      slug: 'revolutionary-ai-breakthrough-healthcare',
+      metaTitle: 'AI Breakthrough in Healthcare | News Platform',
+      metaDescription: 'Major advancement in AI-powered disease detection announced',
+      viewCount: 15420,
+      shareCount: 892,
+      publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
     }
-  ];
-
-  for (const articleData of sampleArticles) {
-    await prisma.newsArticle.upsert({
-      where: { slug: articleData.slug },
-      update: {},
-      create: articleData
-    });
-  }
-
-  console.log('📰 Sample articles created');
-
-  // Create AI/ML content if tables exist
-  try {
-    await prisma.aiArticle.count();
-    
-    const aiArticles = [
-      {
-        headline: 'GPT-4 Successor Demonstrates Revolutionary Language Understanding',
-        briefContent: 'OpenAI unveils next-generation language model with unprecedented comprehension capabilities.',
-        fullContent: 'OpenAI has announced the development of its most advanced language model to date, surpassing GPT-4 in multiple benchmark tests. The new model demonstrates remarkable improvements in logical reasoning, mathematical problem-solving, and nuanced language understanding. Early testing reveals a 40% improvement in complex reasoning tasks and significantly reduced hallucination rates. The model incorporates novel training techniques and architectural improvements that allow for more accurate and contextually appropriate responses. Industry experts are calling this a significant leap forward in artificial general intelligence development.',
-        category: 'NATURAL_LANGUAGE_PROCESSING',
-        featuredImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=400&fit=crop',
-        tags: 'GPT, language model, OpenAI, NLP, AGI',
-        aiModel: 'GPT-5',
-        aiApplication: 'Language Understanding',
-        companyMentioned: 'OpenAI',
-        technologyType: 'Large Language Model',
-        viewCount: 2450,
-        shareCount: 189,
-        relevanceScore: 9.2,
-        isTrending: true,
-        publishedAt: new Date()
-      },
-      {
-        headline: 'Google DeepMind Achieves Breakthrough in Protein Folding Prediction',
-        briefContent: 'AlphaFold 3 predicts protein structures with 98% accuracy, revolutionizing drug discovery.',
-        fullContent: 'Google DeepMind has released AlphaFold 3, which achieves unprecedented accuracy in predicting protein structures and interactions. This breakthrough could accelerate drug discovery processes by decades, enabling researchers to understand diseases at a molecular level and design targeted treatments more efficiently. The system can now predict not only protein folding but also protein-protein, protein-DNA, and protein-RNA interactions with remarkable precision. Pharmaceutical companies are already integrating this technology into their research pipelines, with several major drug discoveries attributed to AlphaFold insights.',
-        category: 'DEEP_LEARNING',
-        featuredImage: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800&h=400&fit=crop',
-        tags: 'protein folding, AlphaFold, drug discovery, biology, DeepMind',
-        aiModel: 'AlphaFold 3',
-        aiApplication: 'Protein Structure Prediction',
-        companyMentioned: 'Google DeepMind',
-        technologyType: 'Deep Neural Network',
-        viewCount: 1890,
-        shareCount: 124,
-        relevanceScore: 8.9,
-        isTrending: true,
-        publishedAt: new Date(Date.now() - 24 * 60 * 60 * 1000)
-      },
-      {
-        headline: 'Tesla Full Self-Driving Achieves Level 4 Autonomy in Urban Testing',
-        briefContent: 'Tesla FSD Beta demonstrates consistent Level 4 autonomous driving in complex city environments.',
-        fullContent: 'Tesla Full Self-Driving (FSD) Beta has successfully achieved Level 4 autonomy in extensive urban testing scenarios, marking a significant milestone in autonomous vehicle development. The system demonstrated the ability to navigate complex intersections, handle unexpected obstacles, and make split-second decisions without human intervention across 10,000 miles of city driving. The breakthrough comes from improved neural network architectures and vast amounts of real-world training data collected from Tesla vehicle fleet. Regulatory approval discussions are underway in several states, with commercial deployment expected within 18 months.',
-        category: 'COMPUTER_VISION',
-        featuredImage: 'https://images.unsplash.com/photo-1549317336-206569e8475c?w=800&h=400&fit=crop',
-        tags: 'autonomous driving, Tesla, FSD, computer vision, neural networks',
-        aiModel: 'Tesla FSD v12',
-        aiApplication: 'Autonomous Driving',
-        companyMentioned: 'Tesla',
-        technologyType: 'Computer Vision Neural Network',
-        viewCount: 3200,
-        shareCount: 245,
-        relevanceScore: 9.0,
-        isTrending: true,
-        publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
-      }
-    ];
-
-    for (const aiArticle of aiArticles) {
-      await prisma.aiArticle.create({
-        data: aiArticle
-      });
-    }
-
-    console.log('🤖 AI/ML articles created');
-  } catch (error) {
-    console.log('ℹ️  AI/ML tables not found, skipping AI content creation');
-  }
-
-  // Create Time Saver Content if tables exist
-  try {
-    await prisma.timeSaverContent.count();
-    
-    const timeSaverContent = [
-      {
-        title: 'Tech Industry Weekly Digest',
-        summary: 'Major developments in technology this week including AI breakthroughs, startup funding, and tech policy updates.',
-        category: 'TECHNOLOGY',
-        imageUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=400&h=300&fit=crop',
-        iconName: 'TechIcon',
-        bgColor: '#3B82F6',
-        keyPoints: 'AI breakthroughs, $2B startup funding, new privacy regulations, quantum computing advances',
-        sourceUrl: 'https://example.com/tech-digest',
-        readTimeSeconds: 180,
-        isPriority: true,
-        contentType: 'DIGEST',
-        viewCount: 1250,
-        publishedAt: new Date()
-      },
-      {
-        title: 'Global Markets Quick Update',
-        summary: 'Stock markets rally on positive economic data. Key indicators show strong growth momentum.',
-        category: 'BUSINESS',
-        imageUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=300&fit=crop',
-        iconName: 'BusinessIcon',
-        bgColor: '#10B981',
-        keyPoints: 'S&P 500 +2.3%, unemployment down, inflation stable, earnings beat expectations',
-        sourceUrl: 'https://example.com/market-update',
-        readTimeSeconds: 90,
-        isPriority: false,
-        contentType: 'QUICK_UPDATE',
-        viewCount: 890,
-        publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) // 2 hours ago
-      },
-      {
-        title: 'Health & Science Briefing',
-        summary: 'New medical breakthroughs, climate research findings, and space exploration updates.',
-        category: 'HEALTH',
-        imageUrl: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=400&h=300&fit=crop',
-        iconName: 'HealthIcon',
-        bgColor: '#EF4444',
-        keyPoints: 'Gene therapy approval, climate adaptation study, Mars mission progress, vaccine updates',
-        sourceUrl: 'https://example.com/health-briefing',
-        readTimeSeconds: 240,
-        isPriority: true,
-        contentType: 'BRIEFING',
-        viewCount: 1450,
-        publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000) // 4 hours ago
-      },
-      {
-        title: 'Sports Highlights Summary',
-        summary: 'Championship results, trade news, and upcoming matches across major sports leagues.',
-        category: 'SPORTS',
-        imageUrl: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&h=300&fit=crop',
-        iconName: 'SportsIcon',
-        bgColor: '#F59E0B',
-        keyPoints: 'Championship finals, major trades, injury updates, playoff schedules',
-        sourceUrl: 'https://example.com/sports-highlights',
-        readTimeSeconds: 150,
-        isPriority: false,
-        contentType: 'HIGHLIGHTS',
-        viewCount: 950,
-        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours ago
-      },
-      {
-        title: 'Political Updates Summary',
-        summary: 'Key political developments, policy changes, and international relations updates.',
-        category: 'POLITICS',
-        imageUrl: 'https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=400&h=300&fit=crop',
-        iconName: 'PoliticsIcon',
-        bgColor: '#8B5CF6',
-        keyPoints: 'Policy announcements, diplomatic meetings, election updates, legislative progress',
-        sourceUrl: 'https://example.com/political-updates',
-        readTimeSeconds: 200,
-        isPriority: true,
-        contentType: 'SUMMARY',
-        viewCount: 720,
-        publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000) // 8 hours ago
-      }
-    ];
-
-    for (const content of timeSaverContent) {
-      await prisma.timeSaverContent.create({
-        data: content
-      });
-    }
-
-    console.log('⏰ Time Saver content created');
-
-    // Create Breaking News
-    const breakingNews = [
-      {
-        title: 'URGENT: Major Cybersecurity Breach Affects Millions of Users',
-        brief: 'A sophisticated cyberattack has compromised data from multiple major platforms, affecting over 50 million users worldwide.',
-        imageUrl: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=400&h=300&fit=crop',
-        sourceUrl: 'https://example.com/cybersecurity-breach',
-        priority: 'CRITICAL',
-        location: 'Global',
-        tags: 'cybersecurity, data breach, privacy, technology',
-        timestamp: new Date()
-      },
-      {
-        title: 'Breaking: Historic Climate Agreement Reached at COP Summit',
-        brief: 'World leaders commit to unprecedented carbon reduction targets and renewable energy investments.',
-        imageUrl: 'https://images.unsplash.com/photo-1569163139394-de4e4f43e4e5?w=400&h=300&fit=crop',
-        sourceUrl: 'https://example.com/climate-agreement',
-        priority: 'HIGH',
-        location: 'Dubai, UAE',
-        tags: 'climate change, environment, policy, global',
-        timestamp: new Date(Date.now() - 30 * 60 * 1000) // 30 minutes ago
-      },
-      {
-        title: 'Stock Market Flash: Tech Stocks Surge 5% in Pre-Market Trading',
-        brief: 'Major technology companies see significant gains following positive earnings reports and AI investment announcements.',
-        imageUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=300&fit=crop',
-        sourceUrl: 'https://example.com/tech-stocks-surge',
-        priority: 'MEDIUM',
-        location: 'New York, USA',
-        tags: 'stocks, technology, earnings, finance',
-        timestamp: new Date(Date.now() - 45 * 60 * 1000) // 45 minutes ago
-      }
-    ];
-
-    for (const news of breakingNews) {
-      await prisma.breakingNews.create({
-        data: news
-      });
-    }
-
-    console.log('🚨 Breaking news created');
-
-    // Create Quick Updates
-    const quickUpdates = [
-      {
-        title: 'AI Startup Raises $100M Series B Funding',
-        brief: 'Revolutionary AI company secures major funding round led by top venture capital firms.',
-        category: 'TECHNOLOGY',
-        imageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=400&h=300&fit=crop',
-        tags: 'startup, funding, AI, venture capital',
-        isHot: true,
-        engagementScore: 95,
-        timestamp: new Date()
-      },
-      {
-        title: 'New COVID Variant Detected in Multiple Countries',
-        brief: 'Health officials monitor new variant with enhanced transmissibility but similar severity.',
-        category: 'HEALTH',
-        imageUrl: 'https://images.unsplash.com/photo-1584118624012-df056829fbd0?w=400&h=300&fit=crop',
-        tags: 'covid, health, variant, global',
-        isHot: true,
-        engagementScore: 87,
-        timestamp: new Date(Date.now() - 60 * 60 * 1000) // 1 hour ago
-      },
-      {
-        title: 'Space Mission Achieves Historic Milestone',
-        brief: 'Artemis mission successfully completes lunar orbit insertion, paving way for moon landing.',
-        category: 'SCIENCE',
-        imageUrl: 'https://images.unsplash.com/photo-1446776877081-d282a0f896e2?w=400&h=300&fit=crop',
-        tags: 'space, NASA, moon mission, science',
-        isHot: false,
-        engagementScore: 78,
-        timestamp: new Date(Date.now() - 90 * 60 * 1000) // 1.5 hours ago
-      }
-    ];
-
-    for (const update of quickUpdates) {
-      await prisma.quickUpdate.create({
-        data: update
-      });
-    }
-
-    console.log('⚡ Quick updates created');
-
-  } catch (error) {
-    console.log('ℹ️  Time Saver tables not found, skipping Time Saver content creation');
-  }
-
-  // Create sample advertisements with real images
-  const sampleAds = [
-    {
-      title: 'Premium Coffee Delivery Service',
-      content: 'Get fresh, premium coffee delivered to your door every morning. Use code NEWS20 for 20% off your first order.',
-      imageUrl: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&h=300&fit=crop',
-      targetUrl: 'https://example.com/coffee',
-      position: 'BANNER',
-      isActive: true,
-      startDate: new Date(),
-      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-      budget: 500.00,
-      impressions: 1500,
-      clickCount: 45,
-      createdBy: adManager.id
-    },
-    {
-      title: 'Online Learning Platform',
-      content: 'Advance your career with our comprehensive online courses. Join thousands of successful learners today.',
-      imageUrl: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=400&h=300&fit=crop',
-      targetUrl: 'https://example.com/learning',
-      position: 'SIDEBAR',
-      isActive: true,
-      startDate: new Date(),
-      endDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000), // 45 days from now
-      budget: 1200.00,
-      impressions: 2800,
-      clickCount: 92,
-      createdBy: adManager.id
-    },
-    {
-      title: 'Fitness Equipment Sale',
-      content: 'Transform your home into a professional gym. Limited time offer - up to 40% off all equipment.',
-      imageUrl: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=300&fit=crop',
-      targetUrl: 'https://example.com/fitness',
-      position: 'INLINE',
-      isActive: true,
-      startDate: new Date(),
-      endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days from now
-      budget: 800.00,
-      impressions: 950,
-      clickCount: 28,
-      createdBy: adManager.id
-    }
-  ];
-
-  for (const adData of sampleAds) {
-    await prisma.advertisement.create({
-      data: adData
-    });
-  }
-
-  console.log('📢 Sample advertisements created');
-
-  // Create sample notifications
-  const sampleNotifications = [
-    {
-      userId: user.id,
-      type: 'SYSTEM_ANNOUNCEMENT',
-      title: 'Welcome to Daily News Dashboard',
-      message: 'Thank you for joining our news platform. Explore the latest articles and stay informed!',
-      data: { source: 'system', priority: 'normal' },
-      createdBy: admin.id
-    },
-    {
-      userId: editor.id,
-      type: 'ARTICLE_APPROVED',
-      title: 'Article Approved',
-      message: 'Your article "Breaking: Major Technology Breakthrough in AI Research" has been approved and published.',
-      data: { articleId: 'placeholder', action: 'approved' },
-      createdBy: adManager.id
-    },
-    {
-      userId: user.id,
-      type: 'PROMOTIONAL',
-      title: 'New Time Saver Content Available',
-      message: 'Check out the latest tech digest and breaking news updates in your Time Saver section.',
-      data: { categories: ['TECHNOLOGY', 'BUSINESS'], count: 3 },
-      createdBy: admin.id
-    },
-    {
-      userId: editor.id,
-      type: 'ARTICLE_PUBLISHED',
-      title: 'Time Saver Content Published',
-      message: 'Your weekly tech digest has been published and is getting great engagement!',
-      data: { articleId: 'placeholder', views: 250 },
-      createdBy: adManager.id
-    }
-  ];
-
-  for (const notificationData of sampleNotifications) {
-    await prisma.notification.create({
-      data: notificationData
-    });
-  }
-
-  console.log('🔔 Sample notifications created');
-
-  // Create system settings
-  const systemSettings = [
-    { key: 'site_name', value: 'Daily News Dashboard', type: 'string', category: 'general' },
-    { key: 'site_description', value: 'Your trusted source for daily news and updates', type: 'string', category: 'general' },
-    { key: 'max_articles_per_page', value: '10', type: 'number', category: 'content' },
-    { key: 'enable_user_registration', value: 'true', type: 'boolean', category: 'users' },
-    { key: 'require_email_verification', value: 'false', type: 'boolean', category: 'users' },
-    { key: 'default_article_status', value: 'PENDING', type: 'string', category: 'content' },
-    { key: 'enable_comments', value: 'true', type: 'boolean', category: 'engagement' },
-    { key: 'auto_publish_approved_articles', value: 'true', type: 'boolean', category: 'content' },
-    { key: 'maintenance_mode', value: 'false', type: 'boolean', category: 'system' },
-    { key: 'analytics_enabled', value: 'true', type: 'boolean', category: 'system' },
-    { key: 'time_saver_enabled', value: 'true', type: 'boolean', category: 'features' },
-    { key: 'breaking_news_enabled', value: 'true', type: 'boolean', category: 'features' },
-    { key: 'quick_updates_refresh_rate', value: '300', type: 'number', category: 'time_saver' }
-  ];
-
-  for (const setting of systemSettings) {
-    await prisma.systemSettings.upsert({
-      where: { key: setting.key },
-      update: {},
-      create: setting
-    });
-  }
-
-  console.log('⚙️ System settings created');
-
-  // Create sample user favorites and reading history
-  const articles = await prisma.newsArticle.findMany({
-    take: 3,
-    select: { id: true }
   });
 
-  // Create favorites for regular articles
-  for (const article of articles) {
-    await prisma.userFavorite.upsert({
-      where: {
-        userId_newsId: {
-          userId: user.id,
-          newsId: article.id
-        }
+  const article2 = await prisma.newsArticle.create({
+    data: {
+      headline: 'Global Climate Summit Reaches Historic Agreement',
+      briefContent: 'World leaders commit to ambitious carbon reduction targets',
+      fullContent: 'After intense negotiations, representatives from 195 countries have agreed on comprehensive climate action plans. The historic agreement includes binding commitments to reduce carbon emissions by 50% by 2035 and establish a $100 billion fund for climate adaptation in developing nations.',
+      category: 'ENVIRONMENT',
+      status: 'PUBLISHED',
+      priorityLevel: 9,
+      authorId: editor2.id,
+      approvedBy: adManager.id,
+      featuredImage: IMAGES.articles.climateSummit,
+      tags: 'Climate, Environment, Politics, Global',
+      slug: 'global-climate-summit-historic-agreement',
+      metaTitle: 'Historic Climate Agreement Reached',
+      metaDescription: 'World leaders commit to ambitious carbon reduction',
+      viewCount: 12350,
+      shareCount: 756,
+      publishedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  const article3 = await prisma.newsArticle.create({
+    data: {
+      headline: 'Stock Market Hits All-Time High',
+      briefContent: 'Major indices surge on positive economic indicators',
+      fullContent: 'Global stock markets celebrated today as major indices reached record highs, driven by strong corporate earnings and optimistic economic forecasts. The S&P 500 gained 2.3%, while tech stocks led the rally with gains exceeding 3%.',
+      category: 'BUSINESS',
+      status: 'PUBLISHED',
+      priorityLevel: 7,
+      authorId: editor1.id,
+      approvedBy: admin.id,
+      featuredImage: IMAGES.articles.stockMarket,
+      tags: 'Finance, Business, Economy, Markets',
+      slug: 'stock-market-all-time-high',
+      metaTitle: 'Stock Market Reaches Record High',
+      metaDescription: 'Major indices surge on positive economic data',
+      viewCount: 8920,
+      shareCount: 445,
+      publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  const article4 = await prisma.newsArticle.create({
+    data: {
+      headline: 'New Study Reveals Benefits of Mediterranean Diet',
+      briefContent: 'Research shows significant health improvements from dietary changes',
+      fullContent: 'A comprehensive 10-year study has confirmed the extensive health benefits of the Mediterranean diet. Participants following the diet showed a 30% reduction in heart disease risk, improved cognitive function, and better overall health markers.',
+      category: 'HEALTH',
+      status: 'PUBLISHED',
+      priorityLevel: 6,
+      authorId: editor2.id,
+      approvedBy: adManager.id,
+      featuredImage: IMAGES.articles.mediterraneanDiet,
+      tags: 'Health, Diet, Wellness, Research',
+      slug: 'mediterranean-diet-health-benefits',
+      metaTitle: 'Mediterranean Diet Benefits Confirmed',
+      metaDescription: 'New research validates health improvements',
+      viewCount: 7650,
+      shareCount: 523,
+      publishedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  const article5 = await prisma.newsArticle.create({
+    data: {
+      headline: 'Space Agency Announces Mars Mission Timeline',
+      briefContent: 'Manned mission to Mars planned for 2030',
+      fullContent: 'The space agency has unveiled detailed plans for sending astronauts to Mars within the next decade. The mission will include establishing a permanent research base and conducting extensive geological surveys to understand the planet\'s history and potential for supporting life.',
+      category: 'SCIENCE',
+      status: 'PUBLISHED',
+      priorityLevel: 8,
+      authorId: editor1.id,
+      approvedBy: admin.id,
+      featuredImage: IMAGES.articles.marsMission,
+      tags: 'Space, Science, Mars, Exploration',
+      slug: 'mars-mission-timeline-announced',
+      metaTitle: 'Mars Mission Timeline Revealed',
+      metaDescription: 'Manned mission to Mars planned for 2030',
+      viewCount: 11240,
+      shareCount: 678,
+      publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  const article6 = await prisma.newsArticle.create({
+    data: {
+      headline: 'Education Reform Bill Under Review',
+      briefContent: 'Proposed changes to national education system',
+      fullContent: 'Lawmakers are considering significant reforms to the education system, including increased funding for STEM programs, teacher salary improvements, and modernization of school infrastructure.',
+      category: 'EDUCATION',
+      status: 'PENDING',
+      priorityLevel: 5,
+      authorId: editor2.id,
+      featuredImage: IMAGES.articles.educationReform,
+      tags: 'Education, Politics, Reform',
+      slug: 'education-reform-bill-review'
+    }
+  });
+
+  console.log('Created 6 news articles\n');
+
+  // 3. Create AI/ML Articles
+  console.log('Creating AI/ML articles...');
+
+  const aiArticle1 = await prisma.aiArticle.create({
+    data: {
+      headline: 'GPT-5 Rumors: What We Know So Far',
+      briefContent: 'Industry insiders share details about upcoming AI model',
+      fullContent: 'Speculation is building around the next generation of large language models. Industry sources suggest GPT-5 will feature dramatically improved reasoning capabilities, better context understanding, and more efficient training methods.',
+      category: 'AI Models',
+      featuredImage: IMAGES.ai.gpt5,
+      tags: 'GPT, LLM, AI, OpenAI',
+      aiModel: 'GPT-5',
+      aiApplication: 'Natural Language Processing',
+      companyMentioned: 'OpenAI',
+      technologyType: 'Large Language Model',
+      viewCount: 8920,
+      shareCount: 567,
+      relevanceScore: 9.2,
+      isTrending: true,
+      publishedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      createdBy: adManager.id
+    }
+  });
+
+  const aiArticle2 = await prisma.aiArticle.create({
+    data: {
+      headline: 'Computer Vision Breakthrough in Autonomous Vehicles',
+      briefContent: 'New algorithms improve object detection accuracy',
+      fullContent: 'Researchers have developed advanced computer vision systems that dramatically improve autonomous vehicle safety. The new YOLOv8-based system achieves 99.7% accuracy in real-world conditions.',
+      category: 'Computer Vision',
+      featuredImage: IMAGES.ai.computerVision,
+      tags: 'CV, Autonomous, Self-Driving, AI',
+      aiModel: 'YOLOv8',
+      aiApplication: 'Object Detection',
+      companyMentioned: 'Tesla',
+      technologyType: 'Computer Vision',
+      viewCount: 6540,
+      shareCount: 423,
+      relevanceScore: 8.7,
+      isTrending: true,
+      publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      createdBy: admin.id
+    }
+  });
+
+  const aiArticle3 = await prisma.aiArticle.create({
+    data: {
+      headline: 'Machine Learning in Drug Discovery',
+      briefContent: 'AI accelerates pharmaceutical research timelines',
+      fullContent: 'Pharmaceutical companies are increasingly turning to machine learning to speed up drug discovery. AlphaFold and similar systems are revolutionizing protein structure prediction and drug candidate identification.',
+      category: 'Healthcare AI',
+      featuredImage: IMAGES.ai.drugDiscovery,
+      tags: 'ML, Healthcare, Pharma, Research',
+      aiModel: 'AlphaFold',
+      aiApplication: 'Drug Discovery',
+      companyMentioned: 'DeepMind',
+      technologyType: 'Machine Learning',
+      viewCount: 5230,
+      shareCount: 334,
+      relevanceScore: 8.5,
+      isTrending: false,
+      publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      createdBy: adManager.id
+    }
+  });
+
+  console.log('Created 3 AI/ML articles\n');
+
+  // 4. Create AI Categories
+  console.log('Creating AI categories...');
+  await prisma.aiCategory.createMany({
+    data: [
+      { 
+        name: 'AI Models', 
+        description: 'Latest AI model developments', 
+        iconUrl: IMAGES.icons.aiModels, 
+        articleCount: 1, 
+        isHot: true 
       },
-      update: {},
-      create: {
-        userId: user.id,
-        newsId: article.id
-      }
-    });
-  }
-
-  console.log('⭐ Sample favorites created');
-
-  // Create sample search history
-  const searchQueries = [
-    'artificial intelligence',
-    'machine learning breakthrough',
-    'climate change',
-    'stock market',
-    'gene therapy',
-    'autonomous driving',
-    'education reform',
-    'breaking news',
-    'time saver digest',
-    'quick updates'
-  ];
-
-  for (const query of searchQueries) {
-    await prisma.searchHistory.create({
-      data: {
-        userId: user.id,
-        query,
-        results: Math.floor(Math.random() * 20) + 1
-      }
-    });
-  }
-
-  console.log('🔍 Sample search history created');
-
-  // Create sample reading history
-  const readingHistoryData = [
-    {
-      userId: user.id,
-      articleId: articles[0].id,
-      timeSpent: 180, // 3 minutes
-      readProgress: 0.85,
-      lastPosition: 1200
-    },
-    {
-      userId: user.id,
-      articleId: articles[1].id,
-      timeSpent: 240, // 4 minutes
-      readProgress: 1.0,
-      lastPosition: 1800
-    },
-    {
-      userId: editor.id,
-      articleId: articles[2].id,
-      timeSpent: 120, // 2 minutes
-      readProgress: 0.6,
-      lastPosition: 800
-    }
-  ];
-
-  for (const readingData of readingHistoryData) {
-    await prisma.readingHistory.upsert({
-      where: {
-        userId_articleId: {
-          userId: readingData.userId,
-          articleId: readingData.articleId
-        }
+      { 
+        name: 'Computer Vision', 
+        description: 'Visual AI and image processing', 
+        iconUrl: IMAGES.icons.computerVision, 
+        articleCount: 1, 
+        isHot: true 
       },
-      update: {},
-      create: readingData
+      { 
+        name: 'Healthcare AI', 
+        description: 'AI in medical applications', 
+        iconUrl: IMAGES.icons.healthcareAi, 
+        articleCount: 1, 
+        isHot: false 
+      },
+      { 
+        name: 'NLP', 
+        description: 'Natural Language Processing advances', 
+        iconUrl: IMAGES.icons.nlp, 
+        articleCount: 0, 
+        isHot: true 
+      },
+      { 
+        name: 'Robotics', 
+        description: 'AI-powered robotics', 
+        iconUrl: IMAGES.icons.robotics, 
+        articleCount: 0, 
+        isHot: false 
+      }
+    ]
+  });
+  console.log('Created AI categories\n');
+
+  // 5. Create TimeSaver Content with Article Links
+  console.log('Creating TimeSaver content...');
+
+  // Today's New content
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'AI Healthcare Revolution',
+        summary: 'Quick recap of today\'s biggest AI breakthrough in medical diagnostics',
+        category: 'TECHNOLOGY',
+        imageUrl: IMAGES.timesaver.aiHealthQuick,
+        iconName: 'activity',
+        bgColor: '#3B82F6',
+        keyPoints: 'AI detects diseases with 99% accuracy|Game-changing for early diagnosis|Available in hospitals next year',
+        readTimeSeconds: 45,
+        isPriority: true,
+        contentType: 'QUICK_UPDATE',
+        contentGroup: 'today_new',
+        tags: 'ai,healthcare,today,breaking',
+        linkedArticleId: article1.id,
+        publishedAt: new Date(),
+        createdBy: adManager.id
+      },
+      {
+        title: 'Climate Deal Highlights',
+        summary: 'Key points from the historic global climate agreement',
+        category: 'ENVIRONMENT',
+        imageUrl: IMAGES.timesaver.climateBrief,
+        iconName: 'globe',
+        bgColor: '#10B981',
+        keyPoints: '195 countries signed|50% carbon reduction by 2035|$100B climate fund established',
+        readTimeSeconds: 60,
+        isPriority: true,
+        contentType: 'DIGEST',
+        contentGroup: 'today_new',
+        tags: 'climate,environment,today',
+        linkedArticleId: article2.id,
+        publishedAt: new Date(),
+        createdBy: adManager.id
+      }
+    ]
+  });
+
+  // Breaking & Critical content
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'Markets Surge to Records',
+        summary: 'Stock indices hit all-time highs on strong earnings',
+        category: 'BUSINESS',
+        imageUrl: IMAGES.timesaver.marketsSurge,
+        iconName: 'trending-up',
+        bgColor: '#EF4444',
+        keyPoints: 'S&P 500 up 2.3%|Tech sector leads gains|Investors optimistic',
+        readTimeSeconds: 40,
+        isPriority: true,
+        contentType: 'BRIEFING',
+        contentGroup: 'breaking_critical',
+        tags: 'business,markets,breaking',
+        linkedArticleId: article3.id,
+        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
+        createdBy: admin.id
+      }
+    ]
+  });
+
+  // Weekly Highlights
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'Top Health Story: Mediterranean Diet Benefits',
+        summary: 'Week\'s most important health research findings',
+        category: 'HEALTH',
+        imageUrl: IMAGES.timesaver.dietWeekly,
+        iconName: 'heart',
+        bgColor: '#F59E0B',
+        keyPoints: '30% reduced heart disease risk|Improved cognitive function|Easy to follow',
+        readTimeSeconds: 90,
+        isPriority: false,
+        contentType: 'HIGHLIGHTS',
+        contentGroup: 'weekly_highlights',
+        tags: 'health,weekly,research',
+        linkedArticleId: article4.id,
+        publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        createdBy: adManager.id
+      },
+      {
+        title: 'Week in Space Exploration',
+        summary: 'Mars mission timeline and other space news',
+        category: 'SCIENCE',
+        imageUrl: IMAGES.timesaver.spaceWeekly,
+        iconName: 'zap',
+        bgColor: '#8B5CF6',
+        keyPoints: 'Mars 2030 mission confirmed|New telescope images|ISS expansion plans',
+        readTimeSeconds: 75,
+        isPriority: false,
+        contentType: 'HIGHLIGHTS',
+        contentGroup: 'weekly_highlights',
+        tags: 'space,science,weekly',
+        linkedArticleId: article5.id,
+        publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+        createdBy: admin.id
+      }
+    ]
+  });
+
+  // Viral Buzz (linked to AI articles)
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'Everyone\'s Talking About GPT-5',
+        summary: 'The AI model that\'s breaking the internet',
+        category: 'TECHNOLOGY',
+        imageUrl: IMAGES.timesaver.gpt5Viral,
+        iconName: 'zap',
+        bgColor: '#EC4899',
+        keyPoints: 'Trending on all platforms|Developers excited|Release date speculation',
+        readTimeSeconds: 50,
+        isPriority: false,
+        contentType: 'QUICK_UPDATE',
+        contentGroup: 'viral_buzz',
+        tags: 'viral,trending,ai,gpt',
+        linkedAiArticleId: aiArticle1.id,
+        publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
+        createdBy: adManager.id
+      }
+    ]
+  });
+
+  // Brief Updates
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'Self-Driving Cars Get Smarter',
+        summary: '30-second update on autonomous vehicle tech',
+        category: 'TECHNOLOGY',
+        imageUrl: IMAGES.timesaver.selfDrivingBrief,
+        iconName: 'truck',
+        bgColor: '#6366F1',
+        keyPoints: 'New vision system|Better object detection|Safer navigation',
+        readTimeSeconds: 30,
+        isPriority: false,
+        contentType: 'QUICK_UPDATE',
+        contentGroup: 'brief_updates',
+        tags: 'tech,ai,autonomous,brief',
+        linkedAiArticleId: aiArticle2.id,
+        publishedAt: new Date(Date.now() - 18 * 60 * 60 * 1000),
+        createdBy: admin.id
+      }
+    ]
+  });
+
+  // Monthly Top content
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'AI in Medicine: Month in Review',
+        summary: 'The breakthrough drug discovery powered by machine learning',
+        category: 'HEALTH',
+        imageUrl: IMAGES.timesaver.aiMedicineMonth,
+        iconName: 'activity',
+        bgColor: '#14B8A6',
+        keyPoints: 'AI speeds drug discovery|New treatments identified|Future of medicine',
+        readTimeSeconds: 120,
+        isPriority: false,
+        contentType: 'SUMMARY',
+        contentGroup: 'monthly_top',
+        tags: 'health,ai,monthly,research',
+        linkedAiArticleId: aiArticle3.id,
+        publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        createdBy: adManager.id
+      }
+    ]
+  });
+
+  // Changing Norms content (no linked articles)
+  await prisma.timeSaverContent.createMany({
+    data: [
+      {
+        title: 'Remote Work Becomes the New Normal',
+        summary: 'How workplace culture is evolving post-pandemic',
+        category: 'LIFESTYLE',
+        imageUrl: IMAGES.timesaver.remoteWork,
+        iconName: 'home',
+        bgColor: '#06B6D4',
+        keyPoints: 'Companies embrace hybrid|Work-life balance focus|Digital nomad rise',
+        readTimeSeconds: 85,
+        isPriority: false,
+        contentType: 'DIGEST',
+        contentGroup: 'changing_norms',
+        tags: 'culture,work,society,change',
+        publishedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        createdBy: adManager.id
+      }
+    ]
+  });
+
+  console.log('Created TimeSaver content with article links\n');
+
+  // 6. Create Breaking News
+  console.log('Creating breaking news...');
+  await prisma.breakingNews.createMany({
+    data: [
+      {
+        title: 'BREAKING: Major Tech Acquisition Announced',
+        brief: 'Tech giant acquires AI startup for $5 billion',
+        imageUrl: IMAGES.breaking.techAcquisition,
+        sourceUrl: 'https://example.com/tech-acquisition',
+        priority: 'CRITICAL',
+        location: 'Silicon Valley',
+        tags: 'tech,business,acquisition',
+        timestamp: new Date()
+      },
+      {
+        title: 'Flash: New Economic Data Released',
+        brief: 'GDP growth exceeds expectations',
+        imageUrl: IMAGES.breaking.gdpGrowth,
+        priority: 'HIGH',
+        tags: 'economy,business',
+        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000)
+      }
+    ]
+  });
+  console.log('Created breaking news\n');
+
+  // 7. Create Advertisements
+  console.log('Creating advertisements...');
+  const now = new Date();
+  const futureDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  await prisma.advertisement.createMany({
+    data: [
+      {
+        title: 'Premium Tech Newsletter',
+        content: 'Subscribe to our weekly tech insights',
+        imageUrl: IMAGES.ads.newsletter,
+        targetUrl: 'https://example.com/subscribe',
+        position: 'BANNER',
+        isActive: true,
+        startDate: now,
+        endDate: futureDate,
+        budget: 5000,
+        clickCount: 245,
+        impressions: 12340,
+        createdBy: adManager.id
+      },
+      {
+        title: 'Cloud Services Promo',
+        content: 'Get 50% off enterprise cloud solutions',
+        imageUrl: IMAGES.ads.cloudServices,
+        targetUrl: 'https://example.com/cloud-promo',
+        position: 'SIDEBAR',
+        isActive: true,
+        startDate: now,
+        endDate: futureDate,
+        budget: 3000,
+        clickCount: 156,
+        impressions: 8920,
+        createdBy: adManager.id
+      }
+    ]
+  });
+  console.log('Created advertisements\n');
+
+  // 8. Create User Interactions
+  console.log('Creating user interactions...');
+  const allUsers = await prisma.user.findMany();
+  const regularUser = allUsers.find(u => u.role === 'USER');
+
+  if (regularUser) {
+    // Create favorites
+    await prisma.userFavorite.createMany({
+      data: [
+        { userId: regularUser.id, newsId: article1.id, savedAt: new Date() },
+        { userId: regularUser.id, newsId: article2.id, savedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      ]
+    });
+
+    // Create reading history
+    await prisma.readingHistory.createMany({
+      data: [
+        {
+          userId: regularUser.id,
+          articleId: article1.id,
+          timeSpent: 245,
+          readProgress: 1.0,
+          lastPosition: 100
+        },
+        {
+          userId: regularUser.id,
+          articleId: article3.id,
+          timeSpent: 156,
+          readProgress: 0.75,
+          lastPosition: 75
+        }
+      ]
+    });
+
+    // Create search history
+    await prisma.searchHistory.createMany({
+      data: [
+        { userId: regularUser.id, query: 'artificial intelligence', results: 15 },
+        { userId: regularUser.id, query: 'climate change', results: 23 },
+        { userId: regularUser.id, query: 'stock market', results: 18 }
+      ]
     });
   }
+  console.log('Created user interactions\n');
 
-  console.log('📚 Sample reading history created');
+  // 9. Create System Settings
+  console.log('Creating system settings...');
+  await prisma.systemSettings.createMany({
+    data: [
+      { key: 'site_name', value: 'News Platform', type: 'string', category: 'general' },
+      { key: 'site_description', value: 'Your trusted news source', type: 'string', category: 'general' },
+      { key: 'articles_per_page', value: '10', type: 'number', category: 'content' },
+      { key: 'enable_comments', value: 'true', type: 'boolean', category: 'features' },
+      { key: 'max_upload_size', value: '5242880', type: 'number', category: 'uploads' }
+    ]
+  });
+  console.log('Created system settings\n');
 
-  // Create engagement data for Time Saver content if tables exist
-  try {
-    const timeSaverContentIds = await prisma.timeSaverContent.findMany({
-      select: { id: true }
-    });
-
-    // Create sample time saver views
-    for (const content of timeSaverContentIds.slice(0, 3)) {
-      await prisma.timeSaverView.create({
-        data: {
-          contentId: content.id,
-          userId: user.id,
-          timestamp: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000) // Random time in last 24 hours
-        }
-      }).catch(() => {}); // Ignore duplicates
-    }
-
-    // Create sample time saver interactions
-    const interactionTypes = ['SHARE', 'BOOKMARK', 'LIKE', 'SAVE_FOR_LATER'];
-    for (const content of timeSaverContentIds.slice(0, 2)) {
-      const randomInteraction = interactionTypes[Math.floor(Math.random() * interactionTypes.length)];
-      await prisma.timeSaverInteraction.create({
-        data: {
-          contentId: content.id,
-          userId: user.id,
-          interactionType: randomInteraction,
-          timestamp: new Date()
-        }
-      }).catch(() => {}); // Ignore duplicates
-    }
-
-    console.log('⏰ Time Saver engagement data created');
-  } catch (error) {
-    console.log('ℹ️  Time Saver interaction tables not found, skipping engagement data');
-  }
-
-  console.log('✅ Database seeding completed successfully!');
-  
-  console.log('\n🔑 Default user credentials:');
-  console.log('Admin: admin@dailynews.com / admin123!');
-  console.log('AD Manager: admanager@dailynews.com / manager123!');
-  console.log('Editor: editor@dailynews.com / editor123!');
-  console.log('User: user@dailynews.com / user123!');
-  
-  console.log('\n🚀 Features Created:');
-  console.log('- 6 Regular News Articles with Unsplash images');
-  console.log('- 3 AI/ML Articles (if tables exist)');
-  console.log('- 5 Time Saver Content items');
-  console.log('- 3 Breaking News items');  
-  console.log('- 3 Quick Updates');
-  console.log('- Sample engagement and analytics data');
-  console.log('- Real images from Unsplash for all content');
+  console.log('✅ Database seeding completed successfully!\n');
+  console.log('📊 Summary:');
+  console.log('   - Users: 7 (1 Admin, 1 AD_MANAGER, 2 Editors, 3 Regular Users)');
+  console.log('   - News Articles: 6 (5 published, 1 pending)');
+  console.log('   - AI Articles: 3');
+  console.log('   - TimeSaver Content: 9 (with article links)');
+  console.log('   - Breaking News: 2');
+  console.log('   - Advertisements: 2');
+  console.log('   - AI Categories: 5');
+  console.log('\n🔑 Login Credentials:');
+  console.log('   Admin: admin@newsplatform.com / password123');
+  console.log('   AD Manager: admanager@newsplatform.com / password123');
+  console.log('   Editor: editor1@newsplatform.com / password123');
+  console.log('   User: user1@example.com / password123');
+  console.log('\n📸 Image Sources:');
+  console.log('   - Avatars: pravatar.cc (random avatar generator)');
+  console.log('   - Articles: unsplash.com (high-quality stock photos)');
+  console.log('   - Icons: iconify.design (SVG icon API)');
 }
 
 main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error('❌ Seeding failed:', e);
-    await prisma.$disconnect();
+  .catch((e) => {
+    console.error('❌ Error during seeding:', e);
     process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
   });
