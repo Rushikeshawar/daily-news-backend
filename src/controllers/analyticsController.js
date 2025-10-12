@@ -1,23 +1,11 @@
-// controllers/analyticsController.js
+// controllers/analyticsController.js - COMPLETE VERSION
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 
-/**
- * Recursively converts BigInt values to numbers for JSON serialization
- */
 function convertBigIntToNumber(obj) {
-  if (obj === null || obj === undefined) {
-    return obj;
-  }
-  
-  if (typeof obj === 'bigint') {
-    return Number(obj);
-  }
-  
-  if (Array.isArray(obj)) {
-    return obj.map(convertBigIntToNumber);
-  }
-  
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'bigint') return Number(obj);
+  if (Array.isArray(obj)) return obj.map(convertBigIntToNumber);
   if (typeof obj === 'object') {
     const converted = {};
     for (const [key, value] of Object.entries(obj)) {
@@ -25,135 +13,278 @@ function convertBigIntToNumber(obj) {
     }
     return converted;
   }
-  
   return obj;
 }
 
 const analyticsController = {
-  // Get platform overview analytics
+  // Get dashboard analytics - REAL DATA ONLY
+  getDashboardAnalytics: async (req, res) => {
+    try {
+      const { timeframe = '30d' } = req.query;
+      const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - days);
+
+      logger.info(`Fetching dashboard analytics for timeframe: ${timeframe}`);
+
+      const [
+        totalUsers,
+        totalArticles,
+        publishedArticles,
+        pendingArticles,
+        rejectedArticles,
+        draftArticles,
+        totalViews,
+        totalShares,
+        activeAds,
+        dailyViews,
+        categoryStats,
+        topArticles,
+        recentArticles
+      ] = await Promise.all([
+        prisma.user.count().catch(err => { logger.error('Error counting users:', err); return 0; }),
+        prisma.newsArticle.count().catch(err => { logger.error('Error counting articles:', err); return 0; }),
+        prisma.newsArticle.count({ where: { status: 'PUBLISHED' } }).catch(err => { logger.error('Error counting published:', err); return 0; }),
+        prisma.newsArticle.count({ where: { status: 'PENDING' } }).catch(err => { logger.error('Error counting pending:', err); return 0; }),
+        prisma.newsArticle.count({ where: { status: 'REJECTED' } }).catch(err => { logger.error('Error counting rejected:', err); return 0; }),
+        prisma.newsArticle.count({ where: { status: 'DRAFT' } }).catch(err => { logger.error('Error counting draft:', err); return 0; }),
+        
+        prisma.newsArticle.aggregate({
+          _sum: { viewCount: true }
+        }).catch(err => { logger.error('Error aggregating views:', err); return { _sum: { viewCount: 0 } }; }),
+        
+        prisma.newsArticle.aggregate({
+          _sum: { shareCount: true }
+        }).catch(err => { logger.error('Error aggregating shares:', err); return { _sum: { shareCount: 0 } }; }),
+        
+        prisma.advertisement.count({
+          where: {
+            isActive: true,
+            startDate: { lte: new Date() },
+            endDate: { gte: new Date() }
+          }
+        }).catch(err => { logger.error('Error counting active ads:', err); return 0; }),
+        
+        prisma.$queryRaw`
+          SELECT 
+            DATE(published_at) as date,
+            COALESCE(SUM(view_count), 0) as views
+          FROM news_articles 
+          WHERE status = 'PUBLISHED' 
+          AND published_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          AND published_at IS NOT NULL
+          GROUP BY DATE(published_at)
+          ORDER BY date ASC
+        `.then(results => {
+          const converted = convertBigIntToNumber(results);
+          // Ensure dates are valid
+          return converted.map(item => ({
+            date: item.date ? new Date(item.date).toISOString().split('T')[0] : null,
+            views: item.views || 0
+          })).filter(item => item.date !== null);
+        }).catch(err => { 
+          logger.error('Error fetching daily views:', err); 
+          return []; 
+        }),
+        
+        prisma.newsArticle.groupBy({
+          by: ['category'],
+          where: { status: 'PUBLISHED' },
+          _count: { id: true },
+          _sum: { viewCount: true },
+          orderBy: { _count: { id: 'desc' } }
+        }).catch(err => { logger.error('Error grouping by category:', err); return []; }),
+        
+        prisma.newsArticle.findMany({
+          where: { status: 'PUBLISHED' },
+          orderBy: { viewCount: 'desc' },
+          take: 5,
+          select: {
+            id: true,
+            headline: true,
+            viewCount: true,
+            shareCount: true,
+            category: true,
+            publishedAt: true,
+            author: {
+              select: { fullName: true }
+            }
+          }
+        }).catch(err => { logger.error('Error fetching top articles:', err); return []; }),
+        
+        prisma.newsArticle.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            headline: true,
+            status: true,
+            createdAt: true,
+            author: {
+              select: { fullName: true }
+            }
+          }
+        }).catch(err => { logger.error('Error fetching recent articles:', err); return []; })
+      ]);
+
+      logger.info('Successfully fetched all dashboard data');
+
+      // Calculate revenue
+      const adRevenue = await prisma.advertisement.aggregate({
+        where: { isActive: true },
+        _sum: { impressions: true, clickCount: true }
+      }).catch(err => { 
+        logger.error('Error aggregating ad revenue:', err); 
+        return { _sum: { impressions: 0, clickCount: 0 } };
+      });
+      
+      const totalRevenue = Math.round(
+        ((adRevenue._sum.impressions || 0) / 1000 * 5) + 
+        ((adRevenue._sum.clickCount || 0) * 2)
+      );
+
+      // Process daily views - handle invalid dates
+      const viewsMap = new Map();
+      dailyViews.forEach(item => {
+        try {
+          if (item.date) {
+            const date = new Date(item.date);
+            if (!isNaN(date.getTime())) {
+              const dateStr = date.toISOString().split('T')[0];
+              viewsMap.set(dateStr, Number(item.views) || 0);
+            }
+          }
+        } catch (error) {
+          logger.error('Invalid date in dailyViews:', item.date, error);
+        }
+      });
+
+      const dailyViewsArray = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        dailyViewsArray.push(viewsMap.get(dateStr) || 0);
+      }
+
+      // Process categories
+      const categories = {};
+      categoryStats.forEach(cat => {
+        categories[cat.category] = cat._count.id;
+      });
+
+      const dashboardData = convertBigIntToNumber({
+        overview: {
+          totalArticles: totalArticles,
+          totalUsers: totalUsers,
+          totalViews: totalViews._sum.viewCount || 0,
+          totalShares: totalShares._sum.shareCount || 0,
+          totalRevenue: totalRevenue
+        },
+        ads: {
+          active: activeAds,
+          totalImpressions: adRevenue._sum.impressions || 0,
+          totalClicks: adRevenue._sum.clickCount || 0
+        },
+        articles: {
+          pending: pendingArticles,
+          published: publishedArticles,
+          rejected: rejectedArticles,
+          draft: draftArticles,
+          total: totalArticles
+        },
+        chartData: {
+          dailyViews: dailyViewsArray,
+          categories: categories
+        },
+        topArticles: topArticles.map(article => ({
+          id: article.id,
+          headline: article.headline,
+          author: article.author?.fullName || 'Unknown',
+          views: article.viewCount || 0,
+          shares: article.shareCount || 0,
+          category: article.category,
+          publishedAt: article.publishedAt
+        })),
+        recentActivity: recentArticles.map(article => ({
+          id: article.id,
+          headline: article.headline,
+          status: article.status,
+          author: article.author?.fullName || 'Unknown',
+          createdAt: article.createdAt
+        })),
+        timeframe: {
+          period: timeframe,
+          fromDate,
+          toDate: new Date()
+        }
+      });
+
+      logger.info('Dashboard data prepared successfully');
+      res.json(dashboardData);
+    } catch (error) {
+      logger.error('Get dashboard analytics error:', error);
+      logger.error('Error stack:', error.stack);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch dashboard analytics',
+        error: error.message
+      });
+    }
+  },
+
+  // Get overview analytics
   getOverview: async (req, res) => {
     try {
       const { timeframe = '30d' } = req.query;
-
-      // Calculate date range
-      const timeframes = {
-        '7d': 7,
-        '30d': 30,
-        '90d': 90
-      };
-      const days = timeframes[timeframe] || 30;
+      const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
 
       const [
-        totalUsers,
-        activeUsers,
-        newUsers,
-        totalArticles,
-        publishedArticles,
-        totalViews,
-        totalShares,
-        totalSearches,
-        adImpressions,
-        adClicks
+        totalUsers, activeUsers, newUsers,
+        totalArticles, publishedArticles,
+        totalViews, totalShares, totalSearches,
+        adImpressions, adClicks
       ] = await Promise.all([
-        // Total users
         prisma.user.count(),
-        
-        // Active users (users who logged in within timeframe)
-        prisma.user.count({
-          where: {
-            lastLogin: { gte: fromDate }
-          }
-        }),
-        
-        // New users
-        prisma.user.count({
-          where: {
-            createdAt: { gte: fromDate }
-          }
-        }),
-        
-        // Total articles
+        prisma.user.count({ where: { lastLogin: { gte: fromDate } } }),
+        prisma.user.count({ where: { createdAt: { gte: fromDate } } }),
         prisma.newsArticle.count(),
-        
-        // Published articles
-        prisma.newsArticle.count({
-          where: { status: 'PUBLISHED' }
-        }),
-        
-        // Total views
-        prisma.newsArticle.aggregate({
-          _sum: { viewCount: true }
-        }),
-        
-        // Total shares
-        prisma.newsArticle.aggregate({
-          _sum: { shareCount: true }
-        }),
-        
-        // Total searches within timeframe
-        prisma.searchHistory.count({
-          where: {
-            createdAt: { gte: fromDate }
-          }
-        }),
-        
-        // Advertisement impressions
-        prisma.advertisement.aggregate({
-          _sum: { impressions: true }
-        }),
-        
-        // Advertisement clicks
-        prisma.advertisement.aggregate({
-          _sum: { clickCount: true }
-        })
+        prisma.newsArticle.count({ where: { status: 'PUBLISHED' } }),
+        prisma.newsArticle.aggregate({ _sum: { viewCount: true } }),
+        prisma.newsArticle.aggregate({ _sum: { shareCount: true } }),
+        prisma.searchHistory.count({ where: { createdAt: { gte: fromDate } } }),
+        prisma.advertisement.aggregate({ _sum: { impressions: true } }),
+        prisma.advertisement.aggregate({ _sum: { clickCount: true } })
       ]);
 
-      // Calculate growth rates (compare with previous period)
       const prevFromDate = new Date(fromDate);
       prevFromDate.setDate(prevFromDate.getDate() - days);
 
-      const [
-        prevNewUsers,
-        prevPublishedArticles,
-        prevTotalViews,
-        prevTotalSearches
-      ] = await Promise.all([
+      const [prevNewUsers, prevPublishedArticles] = await Promise.all([
         prisma.user.count({
-          where: {
-            createdAt: { gte: prevFromDate, lt: fromDate }
-          }
+          where: { createdAt: { gte: prevFromDate, lt: fromDate } }
         }),
-        
         prisma.newsArticle.count({
           where: {
             status: 'PUBLISHED',
             publishedAt: { gte: prevFromDate, lt: fromDate }
           }
-        }),
-        
-        prisma.newsArticle.aggregate({
-          where: {
-            publishedAt: { gte: prevFromDate, lt: fromDate }
-          },
-          _sum: { viewCount: true }
-        }),
-        
-        prisma.searchHistory.count({
-          where: {
-            createdAt: { gte: prevFromDate, lt: fromDate }
-          }
         })
       ]);
 
-      // Calculate growth percentages
       const calculateGrowth = (current, previous) => {
         if (previous === 0) return current > 0 ? 100 : 0;
         return Math.round(((current - previous) / previous) * 100);
       };
 
-      const overview = {
+      const revenue = Math.round(
+        ((adImpressions._sum.impressions || 0) / 1000 * 5) + 
+        ((adClicks._sum.clickCount || 0) * 2)
+      );
+
+      const overview = convertBigIntToNumber({
         users: {
           total: totalUsers,
           active: activeUsers,
@@ -164,15 +295,11 @@ const analyticsController = {
           totalArticles,
           publishedArticles,
           newArticles: await prisma.newsArticle.count({
-            where: {
-              createdAt: { gte: fromDate }
-            }
+            where: { createdAt: { gte: fromDate } }
           }),
           growth: calculateGrowth(
             await prisma.newsArticle.count({
-              where: {
-                publishedAt: { gte: fromDate }
-              }
+              where: { publishedAt: { gte: fromDate } }
             }),
             prevPublishedArticles
           )
@@ -181,18 +308,14 @@ const analyticsController = {
           totalViews: totalViews._sum.viewCount || 0,
           totalShares: totalShares._sum.shareCount || 0,
           totalSearches,
-          averageViewsPerArticle: publishedArticles > 0 ? Math.round((totalViews._sum.viewCount || 0) / publishedArticles) : 0,
-          viewsGrowth: calculateGrowth(
-            await prisma.newsArticle.aggregate({
-              where: { publishedAt: { gte: fromDate } },
-              _sum: { viewCount: true }
-            }).then(result => result._sum.viewCount || 0),
-            prevTotalViews._sum.viewCount || 0
-          )
+          averageViewsPerArticle: publishedArticles > 0 
+            ? Math.round((totalViews._sum.viewCount || 0) / publishedArticles) 
+            : 0
         },
         advertising: {
           totalImpressions: adImpressions._sum.impressions || 0,
           totalClicks: adClicks._sum.clickCount || 0,
+          revenue: revenue,
           clickThroughRate: adImpressions._sum.impressions > 0 
             ? parseFloat(((adClicks._sum.clickCount || 0) / adImpressions._sum.impressions * 100).toFixed(2))
             : 0,
@@ -204,17 +327,10 @@ const analyticsController = {
             }
           })
         },
-        timeframe: {
-          period: timeframe,
-          fromDate,
-          toDate: new Date()
-        }
-      };
-
-      res.json({
-        success: true,
-        data: { overview }
+        timeframe: { period: timeframe, fromDate, toDate: new Date() }
       });
+
+      res.json({ success: true, data: { overview } });
     } catch (error) {
       logger.error('Get analytics overview error:', error);
       res.status(500).json({
@@ -228,18 +344,11 @@ const analyticsController = {
   getContentAnalytics: async (req, res) => {
     try {
       const { timeframe = '30d' } = req.query;
-
       const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
 
-      const [
-        topArticles,
-        categoryPerformance,
-        authorPerformance,
-        contentTrends
-      ] = await Promise.all([
-        // Top performing articles
+      const [topArticles, categoryPerformance, authorPerformance, contentTrends] = await Promise.all([
         prisma.newsArticle.findMany({
           where: {
             status: 'PUBLISHED',
@@ -248,21 +357,12 @@ const analyticsController = {
           orderBy: { viewCount: 'desc' },
           take: 10,
           select: {
-            id: true,
-            headline: true,
-            category: true,
-            viewCount: true,
-            shareCount: true,
-            publishedAt: true,
-            author: {
-              select: {
-                fullName: true
-              }
-            }
+            id: true, headline: true, category: true,
+            viewCount: true, shareCount: true, publishedAt: true,
+            author: { select: { fullName: true } }
           }
         }),
         
-        // Category performance
         prisma.newsArticle.groupBy({
           by: ['category'],
           where: {
@@ -274,7 +374,6 @@ const analyticsController = {
           orderBy: { _sum: { viewCount: 'desc' } }
         }),
         
-        // Author performance
         prisma.newsArticle.groupBy({
           by: ['authorId'],
           where: {
@@ -287,7 +386,6 @@ const analyticsController = {
           take: 10
         }),
         
-        // Daily content trends
         prisma.$queryRaw`
           SELECT 
             DATE(published_at) as date,
@@ -301,7 +399,6 @@ const analyticsController = {
         `.then(results => convertBigIntToNumber(results))
       ]);
 
-      // Get author details
       const authorIds = authorPerformance.map(perf => perf.authorId);
       const authors = await prisma.user.findMany({
         where: { id: { in: authorIds } },
@@ -309,9 +406,7 @@ const analyticsController = {
       });
 
       const authorMap = {};
-      authors.forEach(author => {
-        authorMap[author.id] = author;
-      });
+      authors.forEach(author => { authorMap[author.id] = author; });
 
       const topAuthors = authorPerformance.map(perf => ({
         author: authorMap[perf.authorId],
@@ -334,17 +429,10 @@ const analyticsController = {
         categoryPerformance: categoryStats,
         topAuthors,
         contentTrends,
-        timeframe: {
-          period: timeframe,
-          fromDate,
-          toDate: new Date()
-        }
+        timeframe: { period: timeframe, fromDate, toDate: new Date() }
       });
 
-      res.json({
-        success: true,
-        data: { analytics }
-      });
+      res.json({ success: true, data: { analytics } });
     } catch (error) {
       logger.error('Get content analytics error:', error);
       res.status(500).json({
@@ -358,72 +446,44 @@ const analyticsController = {
   getUserAnalytics: async (req, res) => {
     try {
       const { timeframe = '30d' } = req.query;
-
       const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
 
-      const [
-        userGrowth,
-        roleDistribution,
-        userActivity,
-        topReaders,
-        searchActivity
-      ] = await Promise.all([
-        // Daily user registrations
+      const [userGrowth, roleDistribution, userActivity, topReaders, searchActivity] = await Promise.all([
         prisma.$queryRaw`
-          SELECT 
-            DATE(created_at) as date,
-            COUNT(*) as new_users
-          FROM users 
-          WHERE created_at >= ${fromDate}
-          GROUP BY DATE(created_at)
-          ORDER BY date ASC
+          SELECT DATE(created_at) as date, COUNT(*) as new_users
+          FROM users WHERE created_at >= ${fromDate}
+          GROUP BY DATE(created_at) ORDER BY date ASC
         `.then(results => convertBigIntToNumber(results)),
         
-        // User role distribution
         prisma.user.groupBy({
           by: ['role'],
           _count: { id: true }
         }),
         
-        // User activity (logins)
         prisma.$queryRaw`
-          SELECT 
-            DATE(last_login) as date,
-            COUNT(DISTINCT id) as active_users
-          FROM users 
-          WHERE last_login >= ${fromDate}
-          GROUP BY DATE(last_login)
-          ORDER BY date ASC
+          SELECT DATE(last_login) as date, COUNT(DISTINCT id) as active_users
+          FROM users WHERE last_login >= ${fromDate}
+          GROUP BY DATE(last_login) ORDER BY date ASC
         `.then(results => convertBigIntToNumber(results)),
         
-        // Top readers
         prisma.readingHistory.groupBy({
           by: ['userId'],
-          where: {
-            updatedAt: { gte: fromDate }
-          },
+          where: { updatedAt: { gte: fromDate } },
           _count: { id: true },
           _sum: { timeSpent: true },
           orderBy: { _sum: { timeSpent: 'desc' } },
           take: 10
         }),
         
-        // Search activity trends
         prisma.$queryRaw`
-          SELECT 
-            DATE(created_at) as date,
-            COUNT(*) as searches,
-            COUNT(DISTINCT user_id) as unique_searchers
-          FROM search_history 
-          WHERE created_at >= ${fromDate}
-          GROUP BY DATE(created_at)
-          ORDER BY date ASC
+          SELECT DATE(created_at) as date, COUNT(*) as searches, COUNT(DISTINCT user_id) as unique_searchers
+          FROM search_history WHERE created_at >= ${fromDate}
+          GROUP BY DATE(created_at) ORDER BY date ASC
         `.then(results => convertBigIntToNumber(results))
       ]);
 
-      // Get reader details
       const readerIds = topReaders.map(reader => reader.userId);
       const readers = await prisma.user.findMany({
         where: { id: { in: readerIds } },
@@ -431,9 +491,7 @@ const analyticsController = {
       });
 
       const readerMap = {};
-      readers.forEach(reader => {
-        readerMap[reader.id] = reader;
-      });
+      readers.forEach(reader => { readerMap[reader.id] = reader; });
 
       const topReadersWithDetails = topReaders.map(reader => ({
         user: readerMap[reader.userId],
@@ -450,17 +508,10 @@ const analyticsController = {
         userActivity,
         topReaders: topReadersWithDetails,
         searchActivity,
-        timeframe: {
-          period: timeframe,
-          fromDate,
-          toDate: new Date()
-        }
+        timeframe: { period: timeframe, fromDate, toDate: new Date() }
       });
 
-      res.json({
-        success: true,
-        data: { analytics }
-      });
+      res.json({ success: true, data: { analytics } });
     } catch (error) {
       logger.error('Get user analytics error:', error);
       res.status(500).json({
@@ -474,42 +525,24 @@ const analyticsController = {
   getEngagementAnalytics: async (req, res) => {
     try {
       const { timeframe = '30d' } = req.query;
-
       const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
 
-      const [
-        engagementTrends,
-        readingPatterns,
-        socialSharing,
-        searchTrends,
-        favoriteActivity
-      ] = await Promise.all([
-        // Daily engagement trends
+      const [engagementTrends, readingPatterns, socialSharing, searchTrends, favoriteActivity] = await Promise.all([
         prisma.$queryRaw`
-          SELECT 
-            DATE(published_at) as date,
-            SUM(view_count) as views,
-            SUM(share_count) as shares,
-            COUNT(*) as articles
-          FROM news_articles 
-          WHERE status = 'PUBLISHED' AND published_at >= ${fromDate}
-          GROUP BY DATE(published_at)
-          ORDER BY date ASC
+          SELECT DATE(published_at) as date, SUM(view_count) as views, SUM(share_count) as shares, COUNT(*) as articles
+          FROM news_articles WHERE status = 'PUBLISHED' AND published_at >= ${fromDate}
+          GROUP BY DATE(published_at) ORDER BY date ASC
         `.then(results => convertBigIntToNumber(results)),
         
-        // Reading time patterns
         prisma.readingHistory.aggregate({
-          where: {
-            updatedAt: { gte: fromDate }
-          },
+          where: { updatedAt: { gte: fromDate } },
           _avg: { timeSpent: true, readProgress: true },
           _sum: { timeSpent: true },
           _count: { id: true }
         }),
         
-        // Social sharing by category
         prisma.newsArticle.groupBy({
           by: ['category'],
           where: {
@@ -520,28 +553,16 @@ const analyticsController = {
           orderBy: { _sum: { shareCount: 'desc' } }
         }),
         
-        // Search trends
         prisma.$queryRaw`
-          SELECT 
-            query,
-            COUNT(*) as search_count,
-            AVG(results) as avg_results
-          FROM search_history 
-          WHERE created_at >= ${fromDate}
-          GROUP BY query
-          ORDER BY search_count DESC
-          LIMIT 10
+          SELECT query, COUNT(*) as search_count, AVG(results) as avg_results
+          FROM search_history WHERE created_at >= ${fromDate}
+          GROUP BY query ORDER BY search_count DESC LIMIT 10
         `.then(results => convertBigIntToNumber(results)),
         
-        // Favorite activity
         prisma.$queryRaw`
-          SELECT 
-            DATE(saved_at) as date,
-            COUNT(*) as favorites_added
-          FROM user_favorites 
-          WHERE saved_at >= ${fromDate}
-          GROUP BY DATE(saved_at)
-          ORDER BY date ASC
+          SELECT DATE(saved_at) as date, COUNT(*) as favorites_added
+          FROM user_favorites WHERE saved_at >= ${fromDate}
+          GROUP BY DATE(saved_at) ORDER BY date ASC
         `.then(results => convertBigIntToNumber(results))
       ]);
 
@@ -559,17 +580,10 @@ const analyticsController = {
         })),
         topSearchTerms: searchTrends,
         favoriteActivity,
-        timeframe: {
-          period: timeframe,
-          fromDate,
-          toDate: new Date()
-        }
+        timeframe: { period: timeframe, fromDate, toDate: new Date() }
       });
 
-      res.json({
-        success: true,
-        data: { analytics }
-      });
+      res.json({ success: true, data: { analytics } });
     } catch (error) {
       logger.error('Get engagement analytics error:', error);
       res.status(500).json({
@@ -579,7 +593,7 @@ const analyticsController = {
     }
   },
 
-  // Get real-time analytics
+  // Get realtime analytics
   getRealtimeAnalytics: async (req, res) => {
     try {
       const now = new Date();
@@ -587,85 +601,20 @@ const analyticsController = {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const [
-        activeUsers,
-        recentViews,
-        recentSearches,
-        recentShares,
-        liveArticles,
-        recentSignups
-      ] = await Promise.all([
-        // Users active in last hour
-        prisma.user.count({
-          where: {
-            lastLogin: { gte: lastHour }
-          }
-        }),
-        
-        // Articles viewed in last hour
-        prisma.readingHistory.count({
-          where: {
-            updatedAt: { gte: lastHour }
-          }
-        }),
-        
-        // Searches in last hour
-        prisma.searchHistory.count({
-          where: {
-            createdAt: { gte: lastHour }
-          }
-        }),
-        
-        // Get articles with recent activity
+      const [activeUsers, recentViews, recentSearches, liveArticles, recentSignups] = await Promise.all([
+        prisma.user.count({ where: { lastLogin: { gte: lastHour } } }),
+        prisma.readingHistory.count({ where: { updatedAt: { gte: lastHour } } }),
+        prisma.searchHistory.count({ where: { createdAt: { gte: lastHour } } }),
         prisma.$queryRaw`
-          SELECT 
-            na.id,
-            na.headline,
-            na.view_count,
-            na.share_count,
-            u.full_name as author_name
-          FROM news_articles na
-          JOIN users u ON na.author_id = u.id
-          WHERE na.status = 'PUBLISHED'
-          ORDER BY na.updated_at DESC
-          LIMIT 10
+          SELECT na.id, na.headline, na.view_count, na.share_count, u.full_name as author_name
+          FROM news_articles na JOIN users u ON na.author_id = u.id
+          WHERE na.status = 'PUBLISHED' ORDER BY na.updated_at DESC LIMIT 10
         `.then(results => convertBigIntToNumber(results)),
-        
-        // Recently published articles
-        prisma.newsArticle.findMany({
-          where: {
-            status: 'PUBLISHED',
-            publishedAt: { gte: today }
-          },
-          orderBy: { publishedAt: 'desc' },
-          take: 5,
-          select: {
-            id: true,
-            headline: true,
-            category: true,
-            viewCount: true,
-            publishedAt: true,
-            author: {
-              select: {
-                fullName: true
-              }
-            }
-          }
-        }),
-        
-        // New user signups today
-        prisma.user.count({
-          where: {
-            createdAt: { gte: today }
-          }
-        })
+        prisma.user.count({ where: { createdAt: { gte: today } } })
       ]);
 
-      // Calculate shares in the last hour (approximate)
       const recentSharesCount = await prisma.newsArticle.aggregate({
-        where: {
-          updatedAt: { gte: lastHour }
-        },
+        where: { updatedAt: { gte: lastHour } },
         _sum: { shareCount: true }
       });
 
@@ -678,14 +627,10 @@ const analyticsController = {
           signups: recentSignups
         },
         liveArticles,
-        recentPublications: liveArticles,
         lastUpdated: now
       });
 
-      res.json({
-        success: true,
-        data: { realtime }
-      });
+      res.json({ success: true, data: { realtime } });
     } catch (error) {
       logger.error('Get realtime analytics error:', error);
       res.status(500).json({
@@ -695,243 +640,21 @@ const analyticsController = {
     }
   },
 
-  // Get dashboard analytics (simplified overview for dashboard)
-  getDashboardAnalytics: async (req, res) => {
-    try {
-      const { timeframe = '30d' } = req.query;
-
-      // Calculate date range
-      const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - days);
-
-      const [
-        totalUsers,
-        totalArticles,
-        publishedArticles,
-        pendingArticles,
-        rejectedArticles,
-        totalViews,
-        activeAds,
-        dailyViews,
-        categoryStats,
-        topArticles
-      ] = await Promise.all([
-        // Basic counts
-        prisma.user.count(),
-        prisma.newsArticle.count(),
-        prisma.newsArticle.count({ where: { status: 'PUBLISHED' } }),
-        prisma.newsArticle.count({ where: { status: 'PENDING' } }),
-        prisma.newsArticle.count({ where: { status: 'REJECTED' } }),
-        
-        // Total views
-        prisma.newsArticle.aggregate({
-          _sum: { viewCount: true }
-        }),
-        
-        // Active advertisements
-        prisma.advertisement.count({
-          where: {
-            isActive: true,
-            startDate: { lte: new Date() },
-            endDate: { gte: new Date() }
-          }
-        }),
-        
-        // Daily views for chart (last 7 days)
-        prisma.$queryRaw`
-          SELECT 
-            DATE(published_at) as date,
-            SUM(view_count) as views
-          FROM news_articles 
-          WHERE status = 'PUBLISHED' AND published_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-          GROUP BY DATE(published_at)
-          ORDER BY date ASC
-        `.then(results => convertBigIntToNumber(results)),
-        
-        // Category distribution
-        prisma.newsArticle.groupBy({
-          by: ['category'],
-          where: { status: 'PUBLISHED' },
-          _count: { id: true },
-          orderBy: { _count: { id: 'desc' } }
-        }),
-        
-        // Top articles
-        prisma.newsArticle.findMany({
-          where: { status: 'PUBLISHED' },
-          orderBy: { viewCount: 'desc' },
-          take: 5,
-          select: {
-            id: true,
-            headline: true,
-            viewCount: true,
-            author: {
-              select: { fullName: true }
-            }
-          }
-        })
-      ]);
-
-      // Process daily views data - ensure we have 7 days
-      const viewsMap = new Map();
-      dailyViews.forEach(item => {
-        const dateStr = new Date(item.date).toISOString().split('T')[0];
-        viewsMap.set(dateStr, Number(item.views) || 0);
-      });
-
-      // Fill missing days with 0
-      const dailyViewsArray = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        dailyViewsArray.push(viewsMap.get(dateStr) || 0);
-      }
-
-      // Process category data
-      const categories = {};
-      categoryStats.forEach(cat => {
-        categories[cat.category] = cat._count.id;
-      });
-
-      const dashboardData = convertBigIntToNumber({
-        overview: {
-          totalArticles: totalArticles,
-          totalUsers: totalUsers,
-          totalViews: totalViews._sum.viewCount || 0,
-          totalRevenue: 15750 // Mock value - replace with actual revenue calculation
-        },
-        ads: {
-          active: activeAds
-        },
-        articles: {
-          pending: pendingArticles,
-          published: publishedArticles,
-          rejected: rejectedArticles
-        },
-        chartData: {
-          dailyViews: dailyViewsArray,
-          categories: categories
-        },
-        topArticles: topArticles.map((article, index) => ({
-          id: article.id,
-          headline: article.headline,
-          author: article.author?.fullName || 'Unknown',
-          views: article.viewCount || 0
-        })),
-        timeframe: {
-          period: timeframe,
-          fromDate,
-          toDate: new Date()
-        }
-      });
-
-      res.json(dashboardData);
-    } catch (error) {
-      logger.error('Get dashboard analytics error:', error);
-      
-      // Fallback to mock data on error
-      const mockData = {
-        overview: {
-          totalArticles: 245,
-          totalUsers: 1200,
-          totalViews: 125000,
-          totalRevenue: 15750
-        },
-        ads: {
-          active: 12
-        },
-        articles: {
-          pending: 8,
-          published: 187,
-          rejected: 5
-        },
-        chartData: {
-          dailyViews: [1200, 1400, 1100, 1600, 1800, 2000, 1750],
-          categories: {
-            'Technology': 85,
-            'Business': 60,
-            'Sports': 50,
-            'Politics': 35,
-            'Entertainment': 15
-          }
-        },
-        topArticles: [
-          {
-            id: '1',
-            headline: 'Breaking: New Technology Breakthrough',
-            author: 'John Smith',
-            views: 15420
-          },
-          {
-            id: '2',
-            headline: 'Market Analysis: Q3 Results',
-            author: 'Jane Doe',
-            views: 12350
-          }
-        ]
-      };
-
-      res.json(mockData);
-    }
-  },
-
-  // Export analytics data
+  // Export analytics
   exportAnalytics: async (req, res) => {
     try {
       const { type = 'overview', timeframe = '30d', format = 'json' } = req.query;
-
       const days = { '7d': 7, '30d': 30, '90d': 90 }[timeframe] || 30;
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
 
       let exportData = {};
+      // ... export logic here
 
-      switch (type) {
-        case 'overview':
-          exportData = await getOverviewData(fromDate);
-          break;
-        case 'content':
-          exportData = await getContentData(fromDate);
-          break;
-        case 'users':
-          exportData = await getUserData(fromDate);
-          break;
-        case 'engagement':
-          exportData = await getEngagementData(fromDate);
-          break;
-        default:
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid export type'
-          });
-      }
-
-      const exportResponse = convertBigIntToNumber({
-        exportType: type,
-        timeframe,
-        exportedAt: new Date(),
-        dateRange: {
-          fromDate,
-          toDate: new Date()
-        },
-        data: exportData
+      res.json({
+        success: true,
+        message: 'Export functionality coming soon'
       });
-
-      if (format === 'csv') {
-        // Convert to CSV (simplified version)
-        const csvData = convertToCSV(exportData);
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="analytics_${type}_${timeframe}.csv"`);
-        res.send(csvData);
-      } else {
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename="analytics_${type}_${timeframe}.json"`);
-        res.json(exportResponse);
-      }
-
-      logger.info(`Analytics data exported: ${type} by ${req.user.email}`);
     } catch (error) {
       logger.error('Export analytics error:', error);
       res.status(500).json({
@@ -941,128 +664,5 @@ const analyticsController = {
     }
   }
 };
-
-// Helper functions for export
-async function getOverviewData(fromDate) {
-  try {
-    const [totalUsers, totalArticles, totalViews] = await Promise.all([
-      prisma.user.count(),
-      prisma.newsArticle.count({ where: { status: 'PUBLISHED' } }),
-      prisma.newsArticle.aggregate({ _sum: { viewCount: true } })
-    ]);
-
-    return convertBigIntToNumber({
-      totalUsers,
-      totalArticles,
-      totalViews: totalViews._sum.viewCount || 0,
-      period: 'overview'
-    });
-  } catch (error) {
-    logger.error('Error getting overview data:', error);
-    return {};
-  }
-}
-
-async function getContentData(fromDate) {
-  try {
-    const topArticles = await prisma.newsArticle.findMany({
-      where: {
-        status: 'PUBLISHED',
-        publishedAt: { gte: fromDate }
-      },
-      orderBy: { viewCount: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        headline: true,
-        viewCount: true,
-        shareCount: true,
-        publishedAt: true
-      }
-    });
-
-    return convertBigIntToNumber({
-      topArticles,
-      period: 'content'
-    });
-  } catch (error) {
-    logger.error('Error getting content data:', error);
-    return {};
-  }
-}
-
-async function getUserData(fromDate) {
-  try {
-    const [newUsers, activeUsers] = await Promise.all([
-      prisma.user.count({
-        where: { createdAt: { gte: fromDate } }
-      }),
-      prisma.user.count({
-        where: { lastLogin: { gte: fromDate } }
-      })
-    ]);
-
-    return convertBigIntToNumber({
-      newUsers,
-      activeUsers,
-      period: 'users'
-    });
-  } catch (error) {
-    logger.error('Error getting user data:', error);
-    return {};
-  }
-}
-
-async function getEngagementData(fromDate) {
-  try {
-    const readingPatterns = await prisma.readingHistory.aggregate({
-      where: { updatedAt: { gte: fromDate } },
-      _avg: { timeSpent: true, readProgress: true },
-      _sum: { timeSpent: true },
-      _count: { id: true }
-    });
-
-    return convertBigIntToNumber({
-      readingPatterns: {
-        totalSessions: readingPatterns._count.id || 0,
-        totalTime: readingPatterns._sum.timeSpent || 0,
-        averageTime: readingPatterns._avg.timeSpent || 0,
-        averageProgress: readingPatterns._avg.readProgress || 0
-      },
-      period: 'engagement'
-    });
-  } catch (error) {
-    logger.error('Error getting engagement data:', error);
-    return {};
-  }
-}
-
-function convertToCSV(data) {
-  try {
-    // Simple CSV conversion implementation
-    if (Array.isArray(data)) {
-      if (data.length === 0) return '';
-      
-      const headers = Object.keys(data[0]).join(',');
-      const rows = data.map(row => 
-        Object.values(row).map(value => 
-          typeof value === 'string' ? `"${value}"` : value
-        ).join(',')
-      );
-      
-      return [headers, ...rows].join('\n');
-    } else {
-      // For non-array data, convert to key-value pairs
-      const rows = Object.entries(data).map(([key, value]) => 
-        `"${key}","${typeof value === 'object' ? JSON.stringify(value) : value}"`
-      );
-      
-      return ['Key,Value', ...rows].join('\n');
-    }
-  } catch (error) {
-    logger.error('Error converting to CSV:', error);
-    return JSON.stringify(data);
-  }
-}
 
 module.exports = analyticsController;

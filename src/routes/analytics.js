@@ -1,4 +1,4 @@
-// routes/analytics.js
+// src/routes/analytics.js
 const express = require('express');
 const { authenticate, authorize } = require('../middleware/auth');
 const analyticsController = require('../controllers/analyticsController');
