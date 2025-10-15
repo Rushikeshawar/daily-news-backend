@@ -1,4 +1,4 @@
- 
+// middleware/validation.js
 const { body, param, query, validationResult } = require('express-validator');
 
 // Handle validation errors
@@ -33,7 +33,6 @@ const userValidation = {
       .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
       .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
     body('fullName')
-      .optional()
       .trim()
       .isLength({ min: 2, max: 100 })
       .withMessage('Full name must be between 2 and 100 characters'),
@@ -75,6 +74,82 @@ const userValidation = {
     body('newPassword')
       .isLength({ min: 8 })
       .withMessage('New password must be at least 8 characters long')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .withMessage('New password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    handleValidationErrors
+  ],
+
+  requestOTP: [
+    body('email')
+      .isEmail()
+      .withMessage('Valid email is required')
+      .normalizeEmail(),
+    body('fullName')
+      .trim()
+      .isLength({ min: 2, max: 100 })
+      .withMessage('Full name must be between 2 and 100 characters'),
+    body('password')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters long')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    handleValidationErrors
+  ],
+
+  verifyOTP: [
+    body('email')
+      .isEmail()
+      .withMessage('Valid email is required')
+      .normalizeEmail(),
+    body('otp')
+      .isLength({ min: 6, max: 6 })
+      .withMessage('OTP must be 6 digits')
+      .isNumeric()
+      .withMessage('OTP must contain only numbers'),
+    body('role')
+      .optional()
+      .isIn(['USER', 'EDITOR', 'ADMIN', 'AD_MANAGER'])
+      .withMessage('Invalid role'),
+    handleValidationErrors
+  ],
+
+  resendOTP: [
+    body('email')
+      .isEmail()
+      .withMessage('Valid email is required')
+      .normalizeEmail(),
+    handleValidationErrors
+  ],
+
+  requestPasswordReset: [
+    body('email')
+      .isEmail()
+      .withMessage('Valid email is required')
+      .normalizeEmail(),
+    handleValidationErrors
+  ],
+
+  verifyPasswordResetOTP: [
+    body('email')
+      .isEmail()
+      .withMessage('Valid email is required')
+      .normalizeEmail(),
+    body('otp')
+      .isLength({ min: 6, max: 6 })
+      .withMessage('OTP must be 6 digits')
+      .isNumeric()
+      .withMessage('OTP must contain only numbers'),
+    handleValidationErrors
+  ],
+
+  resetPassword: [
+    body('email')
+      .isEmail()
+      .withMessage('Valid email is required')
+      .normalizeEmail(),
+    body('newPassword')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters long')
       .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
       .withMessage('New password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
     handleValidationErrors

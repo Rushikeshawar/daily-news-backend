@@ -10,36 +10,36 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  fullName     String?   @map("full_name")
-  role         UserRole  @default(USER)
-  isActive     Boolean   @default(true) @map("is_active")
-  avatar       String?
-  preferences  Json?
-  lastLogin    DateTime? @map("last_login")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  fullName         String?   @map("full_name")
+  role             UserRole  @default(USER)
+  isActive         Boolean   @default(true) @map("is_active")
+  emailVerified    Boolean   @default(false) @map("email_verified")
+  emailVerifiedAt  DateTime? @map("email_verified_at")
+  avatar           String?
+  preferences      Json?
+  lastLogin        DateTime? @map("last_login")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  authoredArticles    NewsArticle[]     @relation("ArticleAuthor")
-  approvedArticles    NewsArticle[]     @relation("ArticleApprover")
-  favorites           UserFavorite[]
-  advertisements      Advertisement[]
-  approvalHistory     ApprovalHistory[]
-  refreshTokens       RefreshToken[]
-  searchHistory       SearchHistory[]
-  readingHistory      ReadingHistory[]
-  notifications       Notification[]    @relation("UserNotifications")
-  createdNotifications Notification[]   @relation("NotificationCreator")
-  
-  aiArticleViews      AiArticleView[]
-  aiArticleInteractions AiArticleInteraction[]
-  
-  timeSaverViews      TimeSaverView[]
-  timeSaverInteractions TimeSaverInteraction[]
-  createdTimeSaverContent TimeSaverContent[] @relation("TimeSaverCreator")
-  createdAiArticles   AiArticle[]        @relation("AiArticleCreator")
+  authoredArticles          NewsArticle[]              @relation("ArticleAuthor")
+  approvedArticles          NewsArticle[]              @relation("ArticleApprover")
+  favorites                 UserFavorite[]
+  advertisements            Advertisement[]
+  approvalHistory           ApprovalHistory[]
+  refreshTokens             RefreshToken[]
+  searchHistory             SearchHistory[]
+  readingHistory            ReadingHistory[]
+  notifications             Notification[]             @relation("UserNotifications")
+  createdNotifications      Notification[]             @relation("NotificationCreator")
+  aiArticleViews            AiArticleView[]
+  aiArticleInteractions     AiArticleInteraction[]
+  timeSaverViews            TimeSaverView[]
+  timeSaverInteractions     TimeSaverInteraction[]
+  createdTimeSaverContent   TimeSaverContent[]         @relation("TimeSaverCreator")
+  createdAiArticles         AiArticle[]                @relation("AiArticleCreator")
 
   @@map("users")
 }
@@ -88,6 +88,33 @@ model NewsArticle {
   timeSaverReferences TimeSaverContent[] @relation("ArticleToTimeSaver")
 
   @@map("news_articles")
+}
+
+model PendingRegistration {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  fullName     String   @map("full_name")
+  passwordHash String   @map("password_hash")
+  otp          String
+  otpExpiry    DateTime @map("otp_expiry")
+  attempts     Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("pending_registrations")
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  otp       String
+  otpExpiry DateTime @map("otp_expiry")
+  attempts  Int      @default(0)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("password_resets")
 }
 
 // AI/ML Article Model - UPDATED WITH LINKS

@@ -1,8 +1,15 @@
 // controllers/authController.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
+const emailService = require('../services/emailService');
+
+// Generate random 6-digit OTP
+const generateOTP = () => {
+  return crypto.randomInt(100000, 999999).toString();
+};
 
 // Generate JWT tokens
 const generateTokens = (userId) => {
@@ -22,10 +29,10 @@ const generateTokens = (userId) => {
 };
 
 const authController = {
-  // Register user
-  register: async (req, res) => {
+  // Step 1: Request OTP for registration
+  requestOTP: async (req, res) => {
     try {
-      const { email, password, fullName, role = 'USER' } = req.body;
+      const { email, fullName, password } = req.body;
 
       // Check if user already exists
       const existingUser = await prisma.user.findUnique({
@@ -39,17 +46,116 @@ const authController = {
         });
       }
 
-      // Hash password
+      // Generate OTP
+      const otp = generateOTP();
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Hash password temporarily
       const saltRounds = 12;
       const passwordHash = await bcrypt.hash(password, saltRounds);
+
+      // Store pending registration with OTP
+      await prisma.pendingRegistration.upsert({
+        where: { email },
+        update: {
+          fullName,
+          passwordHash,
+          otp,
+          otpExpiry,
+          attempts: 0
+        },
+        create: {
+          email,
+          fullName,
+          passwordHash,
+          otp,
+          otpExpiry,
+          attempts: 0
+        }
+      });
+
+      // Send OTP email
+      await emailService.sendOTPEmail(email, otp, fullName);
+
+      logger.info(`OTP sent to ${email} for registration`);
+
+      res.status(200).json({
+        success: true,
+        message: 'OTP sent to your email address',
+        data: {
+          email,
+          expiresIn: 600 // seconds
+        }
+      });
+    } catch (error) {
+      logger.error('Request OTP error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP. Please try again.'
+      });
+    }
+  },
+
+  // Step 2: Verify OTP and complete registration
+  verifyOTPAndRegister: async (req, res) => {
+    try {
+      const { email, otp, role = 'USER' } = req.body;
+
+      // Find pending registration
+      const pendingReg = await prisma.pendingRegistration.findUnique({
+        where: { email }
+      });
+
+      if (!pendingReg) {
+        return res.status(400).json({
+          success: false,
+          message: 'No pending registration found for this email'
+        });
+      }
+
+      // Check if OTP has expired
+      if (new Date() > pendingReg.otpExpiry) {
+        return res.status(400).json({
+          success: false,
+          message: 'OTP has expired. Please request a new one.'
+        });
+      }
+
+      // Check attempts limit
+      if (pendingReg.attempts >= 5) {
+        await prisma.pendingRegistration.delete({
+          where: { email }
+        });
+        return res.status(429).json({
+          success: false,
+          message: 'Too many failed attempts. Please start registration again.'
+        });
+      }
+
+      // Verify OTP
+      if (pendingReg.otp !== otp) {
+        await prisma.pendingRegistration.update({
+          where: { email },
+          data: { attempts: pendingReg.attempts + 1 }
+        });
+
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid OTP. Please try again.',
+          attemptsLeft: 5 - (pendingReg.attempts + 1)
+        });
+      }
 
       // Create user
       const user = await prisma.user.create({
         data: {
-          email,
-          passwordHash,
-          fullName,
-          role: role.toUpperCase()
+          email: pendingReg.email,
+          passwordHash: pendingReg.passwordHash,
+          fullName: pendingReg.fullName,
+          role: role.toUpperCase(),
+          isActive: true,
+          emailVerified: true,
+          emailVerifiedAt: new Date()
         },
         select: {
           id: true,
@@ -57,15 +163,21 @@ const authController = {
           fullName: true,
           role: true,
           isActive: true,
+          emailVerified: true,
           createdAt: true
         }
+      });
+
+      // Delete pending registration
+      await prisma.pendingRegistration.delete({
+        where: { email }
       });
 
       // Generate tokens
       const { accessToken, refreshToken } = generateTokens(user.id);
 
-      // Store refresh token in database
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      // Store refresh token
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await prisma.refreshToken.create({
         data: {
           token: refreshToken,
@@ -74,11 +186,16 @@ const authController = {
         }
       });
 
-      logger.info(`New user registered: ${email}`);
+      // Send welcome email (non-blocking)
+      emailService.sendWelcomeEmail(user.email, user.fullName).catch(err => {
+        logger.error('Failed to send welcome email:', err);
+      });
+
+      logger.info(`User registered successfully: ${email}`);
 
       res.status(201).json({
         success: true,
-        message: 'User registered successfully',
+        message: 'Registration successful',
         data: {
           user,
           accessToken,
@@ -86,10 +203,62 @@ const authController = {
         }
       });
     } catch (error) {
-      logger.error('Registration error:', error);
+      logger.error('Verify OTP error:', error);
       res.status(500).json({
         success: false,
-        message: 'Registration failed'
+        message: 'Registration failed. Please try again.'
+      });
+    }
+  },
+
+  // Resend OTP
+  resendOTP: async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      const pendingReg = await prisma.pendingRegistration.findUnique({
+        where: { email }
+      });
+
+      if (!pendingReg) {
+        return res.status(400).json({
+          success: false,
+          message: 'No pending registration found for this email'
+        });
+      }
+
+      // Generate new OTP
+      const otp = generateOTP();
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+      // Update pending registration
+      await prisma.pendingRegistration.update({
+        where: { email },
+        data: {
+          otp,
+          otpExpiry,
+          attempts: 0
+        }
+      });
+
+      // Send new OTP
+      await emailService.sendOTPEmail(email, otp, pendingReg.fullName);
+
+      logger.info(`OTP resent to ${email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'New OTP sent to your email address',
+        data: {
+          email,
+          expiresIn: 600
+        }
+      });
+    } catch (error) {
+      logger.error('Resend OTP error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to resend OTP. Please try again.'
       });
     }
   },
@@ -99,7 +268,6 @@ const authController = {
     try {
       const { email, password } = req.body;
 
-      // Find user
       const user = await prisma.user.findUnique({
         where: { email },
         select: {
@@ -109,6 +277,7 @@ const authController = {
           fullName: true,
           role: true,
           isActive: true,
+          emailVerified: true,
           avatar: true,
           preferences: true,
           lastLogin: true,
@@ -130,7 +299,13 @@ const authController = {
         });
       }
 
-      // Check password
+      if (!user.emailVerified) {
+        return res.status(401).json({
+          success: false,
+          message: 'Please verify your email before logging in'
+        });
+      }
+
       const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
       if (!isPasswordValid) {
         return res.status(401).json({
@@ -139,11 +314,9 @@ const authController = {
         });
       }
 
-      // Generate tokens
       const { accessToken, refreshToken } = generateTokens(user.id);
 
-      // Store refresh token in database
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await prisma.refreshToken.create({
         data: {
           token: refreshToken,
@@ -152,13 +325,11 @@ const authController = {
         }
       });
 
-      // Update last login
       await prisma.user.update({
         where: { id: user.id },
         data: { lastLogin: new Date() }
       });
 
-      // Remove password hash from response
       const { passwordHash, ...userWithoutPassword } = user;
 
       logger.info(`User logged in: ${email}`);
@@ -193,7 +364,6 @@ const authController = {
         });
       }
 
-      // Verify refresh token
       let decoded;
       try {
         decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
@@ -204,7 +374,6 @@ const authController = {
         });
       }
 
-      // Check if refresh token exists in database
       const storedToken = await prisma.refreshToken.findUnique({
         where: { token: refreshToken },
         include: {
@@ -215,6 +384,7 @@ const authController = {
               fullName: true,
               role: true,
               isActive: true,
+              emailVerified: true,
               avatar: true,
               preferences: true
             }
@@ -223,7 +393,6 @@ const authController = {
       });
 
       if (!storedToken || storedToken.expiresAt < new Date()) {
-        // Clean up expired token
         if (storedToken) {
           await prisma.refreshToken.delete({
             where: { token: refreshToken }
@@ -243,11 +412,9 @@ const authController = {
         });
       }
 
-      // Generate new tokens
       const { accessToken, refreshToken: newRefreshToken } = generateTokens(storedToken.user.id);
 
-      // Update refresh token in database
-      const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await prisma.refreshToken.update({
         where: { token: refreshToken },
         data: {
@@ -280,7 +447,6 @@ const authController = {
       const { refreshToken } = req.body;
 
       if (refreshToken) {
-        // Remove refresh token from database
         await prisma.refreshToken.deleteMany({
           where: {
             OR: [
@@ -290,7 +456,6 @@ const authController = {
           }
         });
       } else {
-        // Remove all refresh tokens for the user
         await prisma.refreshToken.deleteMany({
           where: { userId: req.user.id }
         });
@@ -314,7 +479,6 @@ const authController = {
   // Logout from all devices
   logoutAll: async (req, res) => {
     try {
-      // Remove all refresh tokens for the user
       await prisma.refreshToken.deleteMany({
         where: { userId: req.user.id }
       });
@@ -345,6 +509,7 @@ const authController = {
           fullName: true,
           role: true,
           isActive: true,
+          emailVerified: true,
           avatar: true,
           preferences: true,
           lastLogin: true,
@@ -371,13 +536,11 @@ const authController = {
     try {
       const { currentPassword, newPassword } = req.body;
 
-      // Get user with password
       const user = await prisma.user.findUnique({
         where: { id: req.user.id },
         select: { passwordHash: true }
       });
 
-      // Verify current password
       const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
       if (!isCurrentPasswordValid) {
         return res.status(400).json({
@@ -386,17 +549,14 @@ const authController = {
         });
       }
 
-      // Hash new password
       const saltRounds = 12;
       const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
 
-      // Update password
       await prisma.user.update({
         where: { id: req.user.id },
         data: { passwordHash: newPasswordHash }
       });
 
-      // Remove all refresh tokens to force re-login
       await prisma.refreshToken.deleteMany({
         where: { userId: req.user.id }
       });
@@ -412,6 +572,191 @@ const authController = {
       res.status(500).json({
         success: false,
         message: 'Failed to change password'
+      });
+    }
+  },
+
+  // Request password reset OTP
+  requestPasswordResetOTP: async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, fullName: true, email: true, isActive: true }
+      });
+
+      if (!user) {
+        // Don't reveal if user exists or not
+        return res.status(200).json({
+          success: true,
+          message: 'If the email exists, an OTP has been sent'
+        });
+      }
+
+      if (!user.isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'Account is deactivated'
+        });
+      }
+
+      const otp = generateOTP();
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+      await prisma.passwordReset.upsert({
+        where: { email },
+        update: {
+          otp,
+          otpExpiry,
+          attempts: 0
+        },
+        create: {
+          email,
+          otp,
+          otpExpiry,
+          attempts: 0
+        }
+      });
+
+      await emailService.sendOTPEmail(email, otp, user.fullName);
+
+      logger.info(`Password reset OTP sent to ${email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'If the email exists, an OTP has been sent',
+        data: {
+          email,
+          expiresIn: 600
+        }
+      });
+    } catch (error) {
+      logger.error('Request password reset OTP error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send password reset OTP'
+      });
+    }
+  },
+
+  // Verify password reset OTP
+  verifyPasswordResetOTP: async (req, res) => {
+    try {
+      const { email, otp } = req.body;
+
+      const resetRequest = await prisma.passwordReset.findUnique({
+        where: { email }
+      });
+
+      if (!resetRequest) {
+        return res.status(400).json({
+          success: false,
+          message: 'No password reset request found'
+        });
+      }
+
+      if (new Date() > resetRequest.otpExpiry) {
+        return res.status(400).json({
+          success: false,
+          message: 'OTP has expired'
+        });
+      }
+
+      if (resetRequest.attempts >= 5) {
+        await prisma.passwordReset.delete({
+          where: { email }
+        });
+        return res.status(429).json({
+          success: false,
+          message: 'Too many failed attempts'
+        });
+      }
+
+      if (resetRequest.otp !== otp) {
+        await prisma.passwordReset.update({
+          where: { email },
+          data: { attempts: resetRequest.attempts + 1 }
+        });
+
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid OTP',
+          attemptsLeft: 5 - (resetRequest.attempts + 1)
+        });
+      }
+
+      await prisma.passwordReset.update({
+        where: { email },
+        data: { verified: true }
+      });
+
+      res.json({
+        success: true,
+        message: 'OTP verified successfully'
+      });
+    } catch (error) {
+      logger.error('Verify password reset OTP error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to verify OTP'
+      });
+    }
+  },
+
+  // Reset password
+  resetPassword: async (req, res) => {
+    try {
+      const { email, newPassword } = req.body;
+
+      const resetRequest = await prisma.passwordReset.findUnique({
+        where: { email }
+      });
+
+      if (!resetRequest || !resetRequest.verified) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please verify OTP first'
+        });
+      }
+
+      if (new Date() > resetRequest.otpExpiry) {
+        await prisma.passwordReset.delete({
+          where: { email }
+        });
+        return res.status(400).json({
+          success: false,
+          message: 'OTP has expired. Please request a new one'
+        });
+      }
+
+      const saltRounds = 12;
+      const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+      const user = await prisma.user.update({
+        where: { email },
+        data: { passwordHash }
+      });
+
+      await prisma.passwordReset.delete({
+        where: { email }
+      });
+
+      await prisma.refreshToken.deleteMany({
+        where: { userId: user.id }
+      });
+
+      logger.info(`Password reset successful for ${email}`);
+
+      res.json({
+        success: true,
+        message: 'Password reset successful. Please login with your new password.'
+      });
+    } catch (error) {
+      logger.error('Reset password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to reset password'
       });
     }
   }
