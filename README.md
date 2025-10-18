@@ -442,3 +442,12 @@ Login Credentials:
    AD Manager: admanager@newsplatform.com / password123
    Editor: editor1@newsplatform.com / password123
    User: user1@example.com / password123
+
+
+Admin:      admin@newsplatform.com      / password123
+AD Manager: admanager@newsplatform.com / password123
+Editor 1:   editor1@newsplatform.com   / password123
+Editor 2:   editor2@newsplatform.com   / password123
+User 1:     user1@example.com          / password123
+User 2:     user2@example.com          / password123
+User 3:     user3@example.com          / password123

@@ -59,7 +59,7 @@ const IMAGES = {
 async function main() {
   console.log('Starting database seeding...\n');
 
-  // Clear existing data
+  // Clear existing data in correct order (respecting foreign key constraints)
   console.log('Clearing existing data...');
   await prisma.timeSaverInteraction.deleteMany({});
   await prisma.timeSaverView.deleteMany({});
@@ -77,6 +77,8 @@ async function main() {
   await prisma.advertisement.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.newsArticle.deleteMany({});
+  await prisma.passwordReset.deleteMany({});
+  await prisma.pendingRegistration.deleteMany({});
   await prisma.refreshToken.deleteMany({});
   await prisma.systemSettings.deleteMany({});
   await prisma.user.deleteMany({});
@@ -93,6 +95,8 @@ async function main() {
       fullName: 'Admin User',
       role: 'ADMIN',
       isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
       avatar: IMAGES.avatars.admin,
       lastLogin: new Date()
     }
@@ -105,6 +109,8 @@ async function main() {
       fullName: 'Ad Manager',
       role: 'AD_MANAGER',
       isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
       avatar: IMAGES.avatars.admanager,
       lastLogin: new Date()
     }
@@ -117,6 +123,8 @@ async function main() {
       fullName: 'John Editor',
       role: 'EDITOR',
       isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
       avatar: IMAGES.avatars.editor1,
       lastLogin: new Date()
     }
@@ -129,40 +137,53 @@ async function main() {
       fullName: 'Sarah Writer',
       role: 'EDITOR',
       isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
       avatar: IMAGES.avatars.editor2,
       lastLogin: new Date()
     }
   });
 
-  const users = await prisma.user.createMany({
-    data: [
-      {
-        email: 'user1@example.com',
-        passwordHash: hashedPassword,
-        fullName: 'Alice Reader',
-        role: 'USER',
-        isActive: true,
-        avatar: IMAGES.avatars.user1
-      },
-      {
-        email: 'user2@example.com',
-        passwordHash: hashedPassword,
-        fullName: 'Bob Smith',
-        role: 'USER',
-        isActive: true,
-        avatar: IMAGES.avatars.user2
-      },
-      {
-        email: 'user3@example.com',
-        passwordHash: hashedPassword,
-        fullName: 'Carol Johnson',
-        role: 'USER',
-        isActive: true,
-        avatar: IMAGES.avatars.user3
-      }
-    ]
+  const user1 = await prisma.user.create({
+    data: {
+      email: 'user1@example.com',
+      passwordHash: hashedPassword,
+      fullName: 'Alice Reader',
+      role: 'USER',
+      isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
+      avatar: IMAGES.avatars.user1
+    }
   });
-  console.log(`Created ${3 + users.count} users\n`);
+
+  const user2 = await prisma.user.create({
+    data: {
+      email: 'user2@example.com',
+      passwordHash: hashedPassword,
+      fullName: 'Bob Smith',
+      role: 'USER',
+      isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
+      avatar: IMAGES.avatars.user2
+    }
+  });
+
+  const user3 = await prisma.user.create({
+    data: {
+      email: 'user3@example.com',
+      passwordHash: hashedPassword,
+      fullName: 'Carol Johnson',
+      role: 'USER',
+      isActive: true,
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
+      avatar: IMAGES.avatars.user3
+    }
+  });
+
+  console.log('Created 7 users\n');
 
   // 2. Create News Articles
   console.log('Creating news articles...');
@@ -398,206 +419,198 @@ async function main() {
       }
     ]
   });
-  console.log('Created AI categories\n');
+  console.log('Created 5 AI categories\n');
 
   // 5. Create TimeSaver Content with Article Links
   console.log('Creating TimeSaver content...');
 
   // Today's New content
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'AI Healthcare Revolution',
-        summary: 'Quick recap of today\'s biggest AI breakthrough in medical diagnostics',
-        category: 'TECHNOLOGY',
-        imageUrl: IMAGES.timesaver.aiHealthQuick,
-        iconName: 'activity',
-        bgColor: '#3B82F6',
-        keyPoints: 'AI detects diseases with 99% accuracy|Game-changing for early diagnosis|Available in hospitals next year',
-        readTimeSeconds: 45,
-        isPriority: true,
-        contentType: 'QUICK_UPDATE',
-        contentGroup: 'today_new',
-        tags: 'ai,healthcare,today,breaking',
-        linkedArticleId: article1.id,
-        publishedAt: new Date(),
-        createdBy: adManager.id
-      },
-      {
-        title: 'Climate Deal Highlights',
-        summary: 'Key points from the historic global climate agreement',
-        category: 'ENVIRONMENT',
-        imageUrl: IMAGES.timesaver.climateBrief,
-        iconName: 'globe',
-        bgColor: '#10B981',
-        keyPoints: '195 countries signed|50% carbon reduction by 2035|$100B climate fund established',
-        readTimeSeconds: 60,
-        isPriority: true,
-        contentType: 'DIGEST',
-        contentGroup: 'today_new',
-        tags: 'climate,environment,today',
-        linkedArticleId: article2.id,
-        publishedAt: new Date(),
-        createdBy: adManager.id
-      }
-    ]
+  const timesaver1 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'AI Healthcare Revolution',
+      summary: 'Quick recap of today\'s biggest AI breakthrough in medical diagnostics',
+      category: 'TECHNOLOGY',
+      imageUrl: IMAGES.timesaver.aiHealthQuick,
+      iconName: 'activity',
+      bgColor: '#3B82F6',
+      keyPoints: 'AI detects diseases with 99% accuracy|Game-changing for early diagnosis|Available in hospitals next year',
+      readTimeSeconds: 45,
+      isPriority: true,
+      contentType: 'QUICK_UPDATE',
+      contentGroup: 'today_new',
+      tags: 'ai,healthcare,today,breaking',
+      linkedArticleId: article1.id,
+      publishedAt: new Date(),
+      createdBy: adManager.id
+    }
+  });
+
+  const timesaver2 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Climate Deal Highlights',
+      summary: 'Key points from the historic global climate agreement',
+      category: 'ENVIRONMENT',
+      imageUrl: IMAGES.timesaver.climateBrief,
+      iconName: 'globe',
+      bgColor: '#10B981',
+      keyPoints: '195 countries signed|50% carbon reduction by 2035|$100B climate fund established',
+      readTimeSeconds: 60,
+      isPriority: true,
+      contentType: 'DIGEST',
+      contentGroup: 'today_new',
+      tags: 'climate,environment,today',
+      linkedArticleId: article2.id,
+      publishedAt: new Date(),
+      createdBy: adManager.id
+    }
   });
 
   // Breaking & Critical content
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'Markets Surge to Records',
-        summary: 'Stock indices hit all-time highs on strong earnings',
-        category: 'BUSINESS',
-        imageUrl: IMAGES.timesaver.marketsSurge,
-        iconName: 'trending-up',
-        bgColor: '#EF4444',
-        keyPoints: 'S&P 500 up 2.3%|Tech sector leads gains|Investors optimistic',
-        readTimeSeconds: 40,
-        isPriority: true,
-        contentType: 'BRIEFING',
-        contentGroup: 'breaking_critical',
-        tags: 'business,markets,breaking',
-        linkedArticleId: article3.id,
-        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
-        createdBy: admin.id
-      }
-    ]
+  const timesaver3 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Markets Surge to Records',
+      summary: 'Stock indices hit all-time highs on strong earnings',
+      category: 'BUSINESS',
+      imageUrl: IMAGES.timesaver.marketsSurge,
+      iconName: 'trending-up',
+      bgColor: '#EF4444',
+      keyPoints: 'S&P 500 up 2.3%|Tech sector leads gains|Investors optimistic',
+      readTimeSeconds: 40,
+      isPriority: true,
+      contentType: 'BRIEFING',
+      contentGroup: 'breaking_critical',
+      tags: 'business,markets,breaking',
+      linkedArticleId: article3.id,
+      publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
+      createdBy: admin.id
+    }
   });
 
   // Weekly Highlights
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'Top Health Story: Mediterranean Diet Benefits',
-        summary: 'Week\'s most important health research findings',
-        category: 'HEALTH',
-        imageUrl: IMAGES.timesaver.dietWeekly,
-        iconName: 'heart',
-        bgColor: '#F59E0B',
-        keyPoints: '30% reduced heart disease risk|Improved cognitive function|Easy to follow',
-        readTimeSeconds: 90,
-        isPriority: false,
-        contentType: 'HIGHLIGHTS',
-        contentGroup: 'weekly_highlights',
-        tags: 'health,weekly,research',
-        linkedArticleId: article4.id,
-        publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-        createdBy: adManager.id
-      },
-      {
-        title: 'Week in Space Exploration',
-        summary: 'Mars mission timeline and other space news',
-        category: 'SCIENCE',
-        imageUrl: IMAGES.timesaver.spaceWeekly,
-        iconName: 'zap',
-        bgColor: '#8B5CF6',
-        keyPoints: 'Mars 2030 mission confirmed|New telescope images|ISS expansion plans',
-        readTimeSeconds: 75,
-        isPriority: false,
-        contentType: 'HIGHLIGHTS',
-        contentGroup: 'weekly_highlights',
-        tags: 'space,science,weekly',
-        linkedArticleId: article5.id,
-        publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-        createdBy: admin.id
-      }
-    ]
+  const timesaver4 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Top Health Story: Mediterranean Diet Benefits',
+      summary: 'Week\'s most important health research findings',
+      category: 'HEALTH',
+      imageUrl: IMAGES.timesaver.dietWeekly,
+      iconName: 'heart',
+      bgColor: '#F59E0B',
+      keyPoints: '30% reduced heart disease risk|Improved cognitive function|Easy to follow',
+      readTimeSeconds: 90,
+      isPriority: false,
+      contentType: 'HIGHLIGHTS',
+      contentGroup: 'weekly_highlights',
+      tags: 'health,weekly,research',
+      linkedArticleId: article4.id,
+      publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      createdBy: adManager.id
+    }
+  });
+
+  const timesaver5 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Week in Space Exploration',
+      summary: 'Mars mission timeline and other space news',
+      category: 'SCIENCE',
+      imageUrl: IMAGES.timesaver.spaceWeekly,
+      iconName: 'zap',
+      bgColor: '#8B5CF6',
+      keyPoints: 'Mars 2030 mission confirmed|New telescope images|ISS expansion plans',
+      readTimeSeconds: 75,
+      isPriority: false,
+      contentType: 'HIGHLIGHTS',
+      contentGroup: 'weekly_highlights',
+      tags: 'space,science,weekly',
+      linkedArticleId: article5.id,
+      publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      createdBy: admin.id
+    }
   });
 
   // Viral Buzz (linked to AI articles)
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'Everyone\'s Talking About GPT-5',
-        summary: 'The AI model that\'s breaking the internet',
-        category: 'TECHNOLOGY',
-        imageUrl: IMAGES.timesaver.gpt5Viral,
-        iconName: 'zap',
-        bgColor: '#EC4899',
-        keyPoints: 'Trending on all platforms|Developers excited|Release date speculation',
-        readTimeSeconds: 50,
-        isPriority: false,
-        contentType: 'QUICK_UPDATE',
-        contentGroup: 'viral_buzz',
-        tags: 'viral,trending,ai,gpt',
-        linkedAiArticleId: aiArticle1.id,
-        publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
-        createdBy: adManager.id
-      }
-    ]
+  const timesaver6 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Everyone\'s Talking About GPT-5',
+      summary: 'The AI model that\'s breaking the internet',
+      category: 'TECHNOLOGY',
+      imageUrl: IMAGES.timesaver.gpt5Viral,
+      iconName: 'zap',
+      bgColor: '#EC4899',
+      keyPoints: 'Trending on all platforms|Developers excited|Release date speculation',
+      readTimeSeconds: 50,
+      isPriority: false,
+      contentType: 'QUICK_UPDATE',
+      contentGroup: 'viral_buzz',
+      tags: 'viral,trending,ai,gpt',
+      linkedAiArticleId: aiArticle1.id,
+      publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
+      createdBy: adManager.id
+    }
   });
 
   // Brief Updates
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'Self-Driving Cars Get Smarter',
-        summary: '30-second update on autonomous vehicle tech',
-        category: 'TECHNOLOGY',
-        imageUrl: IMAGES.timesaver.selfDrivingBrief,
-        iconName: 'truck',
-        bgColor: '#6366F1',
-        keyPoints: 'New vision system|Better object detection|Safer navigation',
-        readTimeSeconds: 30,
-        isPriority: false,
-        contentType: 'QUICK_UPDATE',
-        contentGroup: 'brief_updates',
-        tags: 'tech,ai,autonomous,brief',
-        linkedAiArticleId: aiArticle2.id,
-        publishedAt: new Date(Date.now() - 18 * 60 * 60 * 1000),
-        createdBy: admin.id
-      }
-    ]
+  const timesaver7 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Self-Driving Cars Get Smarter',
+      summary: '30-second update on autonomous vehicle tech',
+      category: 'TECHNOLOGY',
+      imageUrl: IMAGES.timesaver.selfDrivingBrief,
+      iconName: 'truck',
+      bgColor: '#6366F1',
+      keyPoints: 'New vision system|Better object detection|Safer navigation',
+      readTimeSeconds: 30,
+      isPriority: false,
+      contentType: 'QUICK_UPDATE',
+      contentGroup: 'brief_updates',
+      tags: 'tech,ai,autonomous,brief',
+      linkedAiArticleId: aiArticle2.id,
+      publishedAt: new Date(Date.now() - 18 * 60 * 60 * 1000),
+      createdBy: admin.id
+    }
   });
 
   // Monthly Top content
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'AI in Medicine: Month in Review',
-        summary: 'The breakthrough drug discovery powered by machine learning',
-        category: 'HEALTH',
-        imageUrl: IMAGES.timesaver.aiMedicineMonth,
-        iconName: 'activity',
-        bgColor: '#14B8A6',
-        keyPoints: 'AI speeds drug discovery|New treatments identified|Future of medicine',
-        readTimeSeconds: 120,
-        isPriority: false,
-        contentType: 'SUMMARY',
-        contentGroup: 'monthly_top',
-        tags: 'health,ai,monthly,research',
-        linkedAiArticleId: aiArticle3.id,
-        publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-        createdBy: adManager.id
-      }
-    ]
+  const timesaver8 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'AI in Medicine: Month in Review',
+      summary: 'The breakthrough drug discovery powered by machine learning',
+      category: 'HEALTH',
+      imageUrl: IMAGES.timesaver.aiMedicineMonth,
+      iconName: 'activity',
+      bgColor: '#14B8A6',
+      keyPoints: 'AI speeds drug discovery|New treatments identified|Future of medicine',
+      readTimeSeconds: 120,
+      isPriority: false,
+      contentType: 'SUMMARY',
+      contentGroup: 'monthly_top',
+      tags: 'health,ai,monthly,research',
+      linkedAiArticleId: aiArticle3.id,
+      publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      createdBy: adManager.id
+    }
   });
 
   // Changing Norms content (no linked articles)
-  await prisma.timeSaverContent.createMany({
-    data: [
-      {
-        title: 'Remote Work Becomes the New Normal',
-        summary: 'How workplace culture is evolving post-pandemic',
-        category: 'LIFESTYLE',
-        imageUrl: IMAGES.timesaver.remoteWork,
-        iconName: 'home',
-        bgColor: '#06B6D4',
-        keyPoints: 'Companies embrace hybrid|Work-life balance focus|Digital nomad rise',
-        readTimeSeconds: 85,
-        isPriority: false,
-        contentType: 'DIGEST',
-        contentGroup: 'changing_norms',
-        tags: 'culture,work,society,change',
-        publishedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-        createdBy: adManager.id
-      }
-    ]
+  const timesaver9 = await prisma.timeSaverContent.create({
+    data: {
+      title: 'Remote Work Becomes the New Normal',
+      summary: 'How workplace culture is evolving post-pandemic',
+      category: 'LIFESTYLE',
+      imageUrl: IMAGES.timesaver.remoteWork,
+      iconName: 'home',
+      bgColor: '#06B6D4',
+      keyPoints: 'Companies embrace hybrid|Work-life balance focus|Digital nomad rise',
+      readTimeSeconds: 85,
+      isPriority: false,
+      contentType: 'DIGEST',
+      contentGroup: 'changing_norms',
+      tags: 'culture,work,society,change',
+      publishedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      createdBy: adManager.id
+    }
   });
 
-  console.log('Created TimeSaver content with article links\n');
+  console.log('Created 9 TimeSaver content items with article links\n');
 
   // 6. Create Breaking News
   console.log('Creating breaking news...');
@@ -623,7 +636,7 @@ async function main() {
       }
     ]
   });
-  console.log('Created breaking news\n');
+  console.log('Created 2 breaking news items\n');
 
   // 7. Create Advertisements
   console.log('Creating advertisements...');
@@ -662,84 +675,273 @@ async function main() {
       }
     ]
   });
-  console.log('Created advertisements\n');
+  console.log('Created 2 advertisements\n');
 
-  // 8. Create User Interactions
+  // 8. Create Approval History
+  console.log('Creating approval history...');
+  await prisma.approvalHistory.createMany({
+    data: [
+      {
+        newsId: article1.id,
+        approverId: adManager.id,
+        action: 'APPROVED',
+        comments: 'Excellent article with accurate information'
+      },
+      {
+        newsId: article2.id,
+        approverId: adManager.id,
+        action: 'APPROVED',
+        comments: 'Well-researched and timely'
+      },
+      {
+        newsId: article3.id,
+        approverId: admin.id,
+        action: 'APPROVED',
+        comments: 'Good financial analysis'
+      }
+    ]
+  });
+  console.log('Created approval history\n');
+
+  // 9. Create User Interactions
   console.log('Creating user interactions...');
-  const allUsers = await prisma.user.findMany();
-  const regularUser = allUsers.find(u => u.role === 'USER');
 
-  if (regularUser) {
-    // Create favorites
-    await prisma.userFavorite.createMany({
-      data: [
-        { userId: regularUser.id, newsId: article1.id, savedAt: new Date() },
-        { userId: regularUser.id, newsId: article2.id, savedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-      ]
-    });
+  // Create favorites
+  await prisma.userFavorite.createMany({
+    data: [
+      { userId: user1.id, newsId: article1.id, savedAt: new Date() },
+      { userId: user1.id, newsId: article2.id, savedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      { userId: user2.id, newsId: article3.id, savedAt: new Date() },
+      { userId: user3.id, newsId: article1.id, savedAt: new Date() }
+    ]
+  });
+  console.log('Created user favorites\n');
 
-    // Create reading history
-    await prisma.readingHistory.createMany({
-      data: [
-        {
-          userId: regularUser.id,
-          articleId: article1.id,
-          timeSpent: 245,
-          readProgress: 1.0,
-          lastPosition: 100
-        },
-        {
-          userId: regularUser.id,
-          articleId: article3.id,
-          timeSpent: 156,
-          readProgress: 0.75,
-          lastPosition: 75
-        }
-      ]
-    });
+  // Create reading history
+  await prisma.readingHistory.createMany({
+    data: [
+      {
+        userId: user1.id,
+        articleId: article1.id,
+        timeSpent: 245,
+        readProgress: 1.0,
+        lastPosition: 100
+      },
+      {
+        userId: user1.id,
+        articleId: article3.id,
+        timeSpent: 156,
+        readProgress: 0.75,
+        lastPosition: 75
+      },
+      {
+        userId: user2.id,
+        articleId: article1.id,
+        timeSpent: 189,
+        readProgress: 0.85,
+        lastPosition: 85
+      },
+      {
+        userId: user2.id,
+        articleId: article2.id,
+        timeSpent: 320,
+        readProgress: 1.0,
+        lastPosition: 100
+      },
+      {
+        userId: user3.id,
+        articleId: article4.id,
+        timeSpent: 145,
+        readProgress: 0.60,
+        lastPosition: 60
+      }
+    ]
+  });
+  console.log('Created reading history\n');
 
-    // Create search history
-    await prisma.searchHistory.createMany({
-      data: [
-        { userId: regularUser.id, query: 'artificial intelligence', results: 15 },
-        { userId: regularUser.id, query: 'climate change', results: 23 },
-        { userId: regularUser.id, query: 'stock market', results: 18 }
-      ]
-    });
-  }
-  console.log('Created user interactions\n');
+  // Create search history
+  await prisma.searchHistory.createMany({
+    data: [
+      { userId: user1.id, query: 'artificial intelligence', results: 15 },
+      { userId: user1.id, query: 'climate change', results: 23 },
+      { userId: user1.id, query: 'stock market', results: 18 },
+      { userId: user2.id, query: 'healthcare technology', results: 12 },
+      { userId: user2.id, query: 'space exploration', results: 8 },
+      { userId: user3.id, query: 'diet and nutrition', results: 25 }
+    ]
+  });
+  console.log('Created search history\n');
 
-  // 9. Create System Settings
+  // 10. Create AI Article Views and Interactions
+  console.log('Creating AI article views and interactions...');
+  
+  await prisma.aiArticleView.createMany({
+    data: [
+      { articleId: aiArticle1.id, userId: user1.id, timestamp: new Date() },
+      { articleId: aiArticle1.id, userId: user2.id, timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+      { articleId: aiArticle2.id, userId: user1.id, timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000) },
+      { articleId: aiArticle3.id, userId: user3.id, timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000) }
+    ]
+  });
+
+  await prisma.aiArticleInteraction.createMany({
+    data: [
+      { articleId: aiArticle1.id, userId: user1.id, interactionType: 'LIKE', timestamp: new Date() },
+      { articleId: aiArticle1.id, userId: user2.id, interactionType: 'SHARE', timestamp: new Date() },
+      { articleId: aiArticle2.id, userId: user1.id, interactionType: 'BOOKMARK', timestamp: new Date() },
+      { articleId: aiArticle3.id, userId: user3.id, interactionType: 'LIKE', timestamp: new Date() }
+    ]
+  });
+  console.log('Created AI article views and interactions\n');
+
+  // 11. Create TimeSaver Views and Interactions
+  console.log('Creating TimeSaver views and interactions...');
+  
+  await prisma.timeSaverView.createMany({
+    data: [
+      { contentId: timesaver1.id, userId: user1.id, timestamp: new Date() },
+      { contentId: timesaver1.id, userId: user2.id, timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000) },
+      { contentId: timesaver2.id, userId: user1.id, timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+      { contentId: timesaver3.id, userId: user3.id, timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000) },
+      { contentId: timesaver6.id, userId: user2.id, timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000) }
+    ]
+  });
+
+  await prisma.timeSaverInteraction.createMany({
+    data: [
+      { contentId: timesaver1.id, userId: user1.id, interactionType: 'LIKE', timestamp: new Date() },
+      { contentId: timesaver2.id, userId: user1.id, interactionType: 'BOOKMARK', timestamp: new Date() },
+      { contentId: timesaver3.id, userId: user2.id, interactionType: 'SHARE', timestamp: new Date() },
+      { contentId: timesaver6.id, userId: user3.id, interactionType: 'SAVE_FOR_LATER', timestamp: new Date() }
+    ]
+  });
+  console.log('Created TimeSaver views and interactions\n');
+
+  // 12. Create Notifications
+  console.log('Creating notifications...');
+  await prisma.notification.createMany({
+    data: [
+      {
+        userId: editor1.id,
+        type: 'ARTICLE_APPROVED',
+        title: 'Article Approved',
+        message: 'Your article "Revolutionary AI Breakthrough in Healthcare" has been approved',
+        data: JSON.stringify({ articleId: article1.id }),
+        isRead: true,
+        readAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+        createdBy: adManager.id
+      },
+      {
+        userId: editor2.id,
+        type: 'ARTICLE_PUBLISHED',
+        title: 'Article Published',
+        message: 'Your article "Global Climate Summit Reaches Historic Agreement" is now live',
+        data: JSON.stringify({ articleId: article2.id }),
+        isRead: false,
+        createdBy: admin.id
+      },
+      {
+        userId: user1.id,
+        type: 'SYSTEM_ANNOUNCEMENT',
+        title: 'Welcome to News Platform',
+        message: 'Thank you for joining our community!',
+        data: null,
+        isRead: true,
+        readAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        createdBy: admin.id
+      },
+      {
+        userId: user2.id,
+        type: 'PROMOTIONAL',
+        title: 'New AI Articles Available',
+        message: 'Check out the latest AI/ML news in your feed',
+        data: JSON.stringify({ category: 'AI Models' }),
+        isRead: false,
+        createdBy: adManager.id
+      }
+    ]
+  });
+  console.log('Created notifications\n');
+
+  // 13. Create System Settings
   console.log('Creating system settings...');
   await prisma.systemSettings.createMany({
     data: [
       { key: 'site_name', value: 'News Platform', type: 'string', category: 'general' },
       { key: 'site_description', value: 'Your trusted news source', type: 'string', category: 'general' },
+      { key: 'contact_email', value: 'contact@newsplatform.com', type: 'string', category: 'general' },
       { key: 'articles_per_page', value: '10', type: 'number', category: 'content' },
       { key: 'enable_comments', value: 'true', type: 'boolean', category: 'features' },
-      { key: 'max_upload_size', value: '5242880', type: 'number', category: 'uploads' }
+      { key: 'enable_notifications', value: 'true', type: 'boolean', category: 'features' },
+      { key: 'max_upload_size', value: '5242880', type: 'number', category: 'uploads' },
+      { key: 'allowed_image_types', value: 'jpg,jpeg,png,webp', type: 'string', category: 'uploads' },
+      { key: 'maintenance_mode', value: 'false', type: 'boolean', category: 'system' },
+      { key: 'api_rate_limit', value: '100', type: 'number', category: 'system' }
     ]
   });
   console.log('Created system settings\n');
 
   console.log('✅ Database seeding completed successfully!\n');
-  console.log('📊 Summary:');
-  console.log('   - Users: 7 (1 Admin, 1 AD_MANAGER, 2 Editors, 3 Regular Users)');
-  console.log('   - News Articles: 6 (5 published, 1 pending)');
-  console.log('   - AI Articles: 3');
-  console.log('   - TimeSaver Content: 9 (with article links)');
-  console.log('   - Breaking News: 2');
-  console.log('   - Advertisements: 2');
-  console.log('   - AI Categories: 5');
-  console.log('\n🔑 Login Credentials:');
-  console.log('   Admin: admin@newsplatform.com / password123');
-  console.log('   AD Manager: admanager@newsplatform.com / password123');
-  console.log('   Editor: editor1@newsplatform.com / password123');
-  console.log('   User: user1@example.com / password123');
-  console.log('\n📸 Image Sources:');
-  console.log('   - Avatars: pravatar.cc (random avatar generator)');
-  console.log('   - Articles: unsplash.com (high-quality stock photos)');
-  console.log('   - Icons: iconify.design (SVG icon API)');
+  console.log('━'.repeat(60));
+  console.log('📊 DATABASE SEEDING SUMMARY');
+  console.log('━'.repeat(60));
+  console.log('');
+  console.log('👥 Users: 7');
+  console.log('   ├─ 1 Admin');
+  console.log('   ├─ 1 AD Manager');
+  console.log('   ├─ 2 Editors');
+  console.log('   └─ 3 Regular Users');
+  console.log('');
+  console.log('📰 News Articles: 6');
+  console.log('   ├─ 5 Published');
+  console.log('   └─ 1 Pending');
+  console.log('');
+  console.log('🤖 AI/ML Articles: 3');
+  console.log('   └─ All Published & Trending');
+  console.log('');
+  console.log('⚡ TimeSaver Content: 9');
+  console.log('   ├─ Linked to News Articles: 5');
+  console.log('   ├─ Linked to AI Articles: 3');
+  console.log('   └─ Standalone: 1');
+  console.log('');
+  console.log('🔥 Breaking News: 2');
+  console.log('📢 Advertisements: 2');
+  console.log('📂 AI Categories: 5');
+  console.log('⭐ User Favorites: 4');
+  console.log('📖 Reading History: 5');
+  console.log('🔍 Search History: 6');
+  console.log('✅ Approval History: 3');
+  console.log('👁️  AI Article Views: 4');
+  console.log('💬 AI Article Interactions: 4');
+  console.log('👁️  TimeSaver Views: 5');
+  console.log('💬 TimeSaver Interactions: 4');
+  console.log('🔔 Notifications: 4');
+  console.log('⚙️  System Settings: 10');
+  console.log('');
+  console.log('━'.repeat(60));
+  console.log('🔑 LOGIN CREDENTIALS');
+  console.log('━'.repeat(60));
+  console.log('');
+  console.log('Admin:      admin@newsplatform.com      / password123');
+  console.log('AD Manager: admanager@newsplatform.com / password123');
+  console.log('Editor 1:   editor1@newsplatform.com   / password123');
+  console.log('Editor 2:   editor2@newsplatform.com   / password123');
+  console.log('User 1:     user1@example.com          / password123');
+  console.log('User 2:     user2@example.com          / password123');
+  console.log('User 3:     user3@example.com          / password123');
+  console.log('');
+  console.log('━'.repeat(60));
+  console.log('📸 IMAGE SOURCES');
+  console.log('━'.repeat(60));
+  console.log('');
+  console.log('Avatars:  pravatar.cc (Random avatar generator)');
+  console.log('Photos:   unsplash.com (High-quality stock photos)');
+  console.log('Icons:    iconify.design (SVG icon API)');
+  console.log('');
+  console.log('━'.repeat(60));
+  console.log('');
+  console.log('✨ All data successfully seeded! Your database is ready.');
+  console.log('');
 }
 
 main()

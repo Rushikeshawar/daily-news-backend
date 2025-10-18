@@ -36,6 +36,12 @@ router.get('/dashboard', authenticate, UserController.getDashboard);
 // @access  Private (ADMIN)
 router.get('/', authenticate, authorize('ADMIN'), genericValidation.pagination, UserController.getAllUsers);
 
+// NEW: Add this route for creating users
+// @desc    Create user (Admin only)
+// @route   POST /api/users
+// @access  Private (ADMIN)
+router.post('/', authenticate, authorize('ADMIN'), userValidation.create, UserController.createUser);
+
 // @desc    Get user by ID (Admin only)
 // @route   GET /api/users/:id
 // @access  Private (ADMIN)

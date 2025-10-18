@@ -1,8 +1,69 @@
 // controllers/userController.js
 const prisma = require('../config/database');
+const bcrypt = require('bcryptjs');  // ← ADD THIS LINE
 const logger = require('../utils/logger');
 
 class UserController {
+
+  // @desc    Create user (Admin only)
+  static async createUser(req, res) {
+    try {
+      const { email, fullName, password, role = 'EDITOR' } = req.body;
+
+      // Check if user already exists
+      const existingUser = await prisma.user.findUnique({
+        where: { email }
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'User already exists with this email'
+        });
+      }
+
+      // Hash password
+      const saltRounds = 12;
+      const passwordHash = await bcrypt.hash(password, saltRounds);
+
+      // Create user
+      const user = await prisma.user.create({
+        data: {
+          email,
+          fullName,
+          passwordHash,
+          role: role.toUpperCase(),
+          isActive: true,
+          emailVerified: true, // Admin-created users are pre-verified
+          emailVerifiedAt: new Date()
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          isActive: true,
+          emailVerified: true,
+          createdAt: true
+        }
+      });
+
+      logger.info(`User created by admin: ${email} (created by: ${req.user.email})`);
+
+      res.status(201).json({
+        success: true,
+        message: 'User created successfully',
+        data: { user }
+      });
+    } catch (error) {
+      logger.error('Create user error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create user'
+      });
+    }
+  }
+
   // @desc    Get current user profile
   static async getProfile(req, res) {
     try {

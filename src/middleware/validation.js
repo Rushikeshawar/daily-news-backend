@@ -22,6 +22,26 @@ const handleValidationErrors = (req, res, next) => {
 
 // User validation rules
 const userValidation = {
+  // NEW: Add this validation for admin creating users
+  create: [
+    body('email')
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Please provide a valid email'),
+    body('fullName')
+      .trim()
+      .isLength({ min: 2, max: 100 })
+      .withMessage('Full name must be between 2 and 100 characters'),
+    body('password')
+      .isLength({ min: 6 })
+      .withMessage('Password must be at least 6 characters long'),
+    body('role')
+      .optional()
+      .isIn(['USER', 'EDITOR', 'AD_MANAGER', 'ADMIN'])
+      .withMessage('Invalid role'),
+    handleValidationErrors
+  ],
+
   register: [
     body('email')
       .isEmail()
