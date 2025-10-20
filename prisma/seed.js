@@ -1,4 +1,4 @@
-// scripts/seed.js
+// scripts/seed.js - FIXED FOR DYNAMIC CATEGORIES
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
@@ -77,6 +77,7 @@ async function main() {
   await prisma.advertisement.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.newsArticle.deleteMany({});
+  await prisma.category.deleteMany({});
   await prisma.passwordReset.deleteMany({});
   await prisma.pendingRegistration.deleteMany({});
   await prisma.refreshToken.deleteMany({});
@@ -185,7 +186,116 @@ async function main() {
 
   console.log('Created 7 users\n');
 
-  // 2. Create News Articles
+  // 2. Create Categories (NEW - Required before articles)
+  console.log('Creating categories...');
+  
+  const techCategory = await prisma.category.create({
+    data: {
+      name: 'TECHNOLOGY',
+      displayName: 'Technology & Innovation',
+      description: 'Latest in technology, AI, and digital innovation',
+      slug: 'technology',
+      color: '#3B82F6',
+      sortOrder: 1,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const envCategory = await prisma.category.create({
+    data: {
+      name: 'ENVIRONMENT',
+      displayName: 'Environment & Climate',
+      description: 'Climate change, sustainability, and environmental news',
+      slug: 'environment',
+      color: '#10B981',
+      sortOrder: 2,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const businessCategory = await prisma.category.create({
+    data: {
+      name: 'BUSINESS',
+      displayName: 'Business & Finance',
+      description: 'Markets, economy, and business news',
+      slug: 'business',
+      color: '#F59E0B',
+      sortOrder: 3,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const healthCategory = await prisma.category.create({
+    data: {
+      name: 'HEALTH',
+      displayName: 'Health & Wellness',
+      description: 'Medical research, health tips, and wellness',
+      slug: 'health',
+      color: '#EF4444',
+      sortOrder: 4,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const scienceCategory = await prisma.category.create({
+    data: {
+      name: 'SCIENCE',
+      displayName: 'Science & Space',
+      description: 'Scientific discoveries and space exploration',
+      slug: 'science',
+      color: '#8B5CF6',
+      sortOrder: 5,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const educationCategory = await prisma.category.create({
+    data: {
+      name: 'EDUCATION',
+      displayName: 'Education',
+      description: 'Education news, reforms, and learning',
+      slug: 'education',
+      color: '#EC4899',
+      sortOrder: 6,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const lifestyleCategory = await prisma.category.create({
+    data: {
+      name: 'LIFESTYLE',
+      displayName: 'Lifestyle',
+      description: 'Culture, lifestyle, and society',
+      slug: 'lifestyle',
+      color: '#06B6D4',
+      sortOrder: 7,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  const rushiCategory = await prisma.category.create({
+    data: {
+      name: 'RUSHI',
+      displayName: 'Rushi Special',
+      description: 'Custom category for Rushi content',
+      slug: 'rushi',
+      color: '#FF5733',
+      sortOrder: 0,
+      isActive: true,
+      createdBy: admin.id
+    }
+  });
+
+  console.log('Created 8 categories\n');
+
+  // 3. Create News Articles
   console.log('Creating news articles...');
   
   const article1 = await prisma.newsArticle.create({
@@ -310,7 +420,7 @@ async function main() {
 
   console.log('Created 6 news articles\n');
 
-  // 3. Create AI/ML Articles
+  // 4. Create AI/ML Articles
   console.log('Creating AI/ML articles...');
 
   const aiArticle1 = await prisma.aiArticle.create({
@@ -378,7 +488,7 @@ async function main() {
 
   console.log('Created 3 AI/ML articles\n');
 
-  // 4. Create AI Categories
+  // 5. Create AI Categories
   console.log('Creating AI categories...');
   await prisma.aiCategory.createMany({
     data: [
@@ -421,10 +531,9 @@ async function main() {
   });
   console.log('Created 5 AI categories\n');
 
-  // 5. Create TimeSaver Content with Article Links
+  // 6. Create TimeSaver Content with Article Links
   console.log('Creating TimeSaver content...');
 
-  // Today's New content
   const timesaver1 = await prisma.timeSaverContent.create({
     data: {
       title: 'AI Healthcare Revolution',
@@ -465,7 +574,6 @@ async function main() {
     }
   });
 
-  // Breaking & Critical content
   const timesaver3 = await prisma.timeSaverContent.create({
     data: {
       title: 'Markets Surge to Records',
@@ -486,7 +594,6 @@ async function main() {
     }
   });
 
-  // Weekly Highlights
   const timesaver4 = await prisma.timeSaverContent.create({
     data: {
       title: 'Top Health Story: Mediterranean Diet Benefits',
@@ -527,7 +634,6 @@ async function main() {
     }
   });
 
-  // Viral Buzz (linked to AI articles)
   const timesaver6 = await prisma.timeSaverContent.create({
     data: {
       title: 'Everyone\'s Talking About GPT-5',
@@ -542,55 +648,12 @@ async function main() {
       contentType: 'QUICK_UPDATE',
       contentGroup: 'viral_buzz',
       tags: 'viral,trending,ai,gpt',
-      linkedAiArticleId: aiArticle1.id,
-      publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
-      createdBy: adManager.id
-    }
-  });
-
-  // Brief Updates
-  const timesaver7 = await prisma.timeSaverContent.create({
-    data: {
-      title: 'Self-Driving Cars Get Smarter',
-      summary: '30-second update on autonomous vehicle tech',
-      category: 'TECHNOLOGY',
-      imageUrl: IMAGES.timesaver.selfDrivingBrief,
-      iconName: 'truck',
-      bgColor: '#6366F1',
-      keyPoints: 'New vision system|Better object detection|Safer navigation',
-      readTimeSeconds: 30,
-      isPriority: false,
-      contentType: 'QUICK_UPDATE',
-      contentGroup: 'brief_updates',
-      tags: 'tech,ai,autonomous,brief',
-      linkedAiArticleId: aiArticle2.id,
-      publishedAt: new Date(Date.now() - 18 * 60 * 60 * 1000),
-      createdBy: admin.id
-    }
-  });
-
-  // Monthly Top content
-  const timesaver8 = await prisma.timeSaverContent.create({
-    data: {
-      title: 'AI in Medicine: Month in Review',
-      summary: 'The breakthrough drug discovery powered by machine learning',
-      category: 'HEALTH',
-      imageUrl: IMAGES.timesaver.aiMedicineMonth,
-      iconName: 'activity',
-      bgColor: '#14B8A6',
-      keyPoints: 'AI speeds drug discovery|New treatments identified|Future of medicine',
-      readTimeSeconds: 120,
-      isPriority: false,
-      contentType: 'SUMMARY',
-      contentGroup: 'monthly_top',
-      tags: 'health,ai,monthly,research',
       linkedAiArticleId: aiArticle3.id,
       publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       createdBy: adManager.id
     }
   });
 
-  // Changing Norms content (no linked articles)
   const timesaver9 = await prisma.timeSaverContent.create({
     data: {
       title: 'Remote Work Becomes the New Normal',
@@ -612,7 +675,7 @@ async function main() {
 
   console.log('Created 9 TimeSaver content items with article links\n');
 
-  // 6. Create Breaking News
+  // 7. Create Breaking News
   console.log('Creating breaking news...');
   await prisma.breakingNews.createMany({
     data: [
@@ -638,7 +701,7 @@ async function main() {
   });
   console.log('Created 2 breaking news items\n');
 
-  // 7. Create Advertisements
+  // 8. Create Advertisements
   console.log('Creating advertisements...');
   const now = new Date();
   const futureDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -677,7 +740,7 @@ async function main() {
   });
   console.log('Created 2 advertisements\n');
 
-  // 8. Create Approval History
+  // 9. Create Approval History
   console.log('Creating approval history...');
   await prisma.approvalHistory.createMany({
     data: [
@@ -703,7 +766,7 @@ async function main() {
   });
   console.log('Created approval history\n');
 
-  // 9. Create User Interactions
+  // 10. Create User Interactions
   console.log('Creating user interactions...');
 
   // Create favorites
@@ -772,7 +835,7 @@ async function main() {
   });
   console.log('Created search history\n');
 
-  // 10. Create AI Article Views and Interactions
+  // 11. Create AI Article Views and Interactions
   console.log('Creating AI article views and interactions...');
   
   await prisma.aiArticleView.createMany({
@@ -794,7 +857,7 @@ async function main() {
   });
   console.log('Created AI article views and interactions\n');
 
-  // 11. Create TimeSaver Views and Interactions
+  // 12. Create TimeSaver Views and Interactions
   console.log('Creating TimeSaver views and interactions...');
   
   await prisma.timeSaverView.createMany({
@@ -817,7 +880,7 @@ async function main() {
   });
   console.log('Created TimeSaver views and interactions\n');
 
-  // 12. Create Notifications
+  // 13. Create Notifications
   console.log('Creating notifications...');
   await prisma.notification.createMany({
     data: [
@@ -863,7 +926,7 @@ async function main() {
   });
   console.log('Created notifications\n');
 
-  // 13. Create System Settings
+  // 14. Create System Settings
   console.log('Creating system settings...');
   await prisma.systemSettings.createMany({
     data: [
@@ -891,6 +954,16 @@ async function main() {
   console.log('   ├─ 1 AD Manager');
   console.log('   ├─ 2 Editors');
   console.log('   └─ 3 Regular Users');
+  console.log('');
+  console.log('📂 Categories: 8');
+  console.log('   ├─ Technology');
+  console.log('   ├─ Environment');
+  console.log('   ├─ Business');
+  console.log('   ├─ Health');
+  console.log('   ├─ Science');
+  console.log('   ├─ Education');
+  console.log('   ├─ Lifestyle');
+  console.log('   └─ Rushi (Custom)');
   console.log('');
   console.log('📰 News Articles: 6');
   console.log('   ├─ 5 Published');
@@ -941,6 +1014,7 @@ async function main() {
   console.log('━'.repeat(60));
   console.log('');
   console.log('✨ All data successfully seeded! Your database is ready.');
+  console.log('🎯 RUSHI category has been created and is ready to use!');
   console.log('');
 }
 
@@ -951,4 +1025,4 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
-  });
+  })

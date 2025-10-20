@@ -1,4 +1,4 @@
-// middleware/validation.js
+// middleware/validation.js - FIXED FOR DYNAMIC CATEGORIES
 const { body, param, query, validationResult } = require('express-validator');
 
 // Handle validation errors
@@ -22,7 +22,6 @@ const handleValidationErrors = (req, res, next) => {
 
 // User validation rules
 const userValidation = {
-  // NEW: Add this validation for admin creating users
   create: [
     body('email')
       .isEmail()
@@ -176,7 +175,7 @@ const userValidation = {
   ]
 };
 
-// Article validation rules
+// Article validation rules - FIXED FOR DYNAMIC CATEGORIES
 const articleValidation = {
   create: [
     body('headline')
@@ -194,8 +193,13 @@ const articleValidation = {
       .isLength({ min: 50 })
       .withMessage('Full content must be at least 50 characters'),
     body('category')
-      .isIn(['GENERAL', 'NATIONAL', 'INTERNATIONAL', 'POLITICS', 'BUSINESS', 'TECHNOLOGY', 'SCIENCE', 'HEALTH', 'EDUCATION', 'ENVIRONMENT', 'SPORTS', 'ENTERTAINMENT', 'CRIME', 'LIFESTYLE', 'FINANCE', 'FOOD', 'FASHION', 'OTHERS'])
-      .withMessage('Invalid category'),
+      .notEmpty()
+      .withMessage('Category is required')
+      .isString()
+      .withMessage('Category must be a string')
+      .trim()
+      .isLength({ min: 1, max: 100 })
+      .withMessage('Category must be between 1 and 100 characters'),
     body('tags')
       .optional()
       .isString()
@@ -232,8 +236,11 @@ const articleValidation = {
       .withMessage('Full content must be at least 50 characters'),
     body('category')
       .optional()
-      .isIn(['GENERAL', 'NATIONAL', 'INTERNATIONAL', 'POLITICS', 'BUSINESS', 'TECHNOLOGY', 'SCIENCE', 'HEALTH', 'EDUCATION', 'ENVIRONMENT', 'SPORTS', 'ENTERTAINMENT', 'CRIME', 'LIFESTYLE', 'FINANCE', 'FOOD', 'FASHION', 'OTHERS'])
-      .withMessage('Invalid category'),
+      .isString()
+      .withMessage('Category must be a string')
+      .trim()
+      .isLength({ min: 1, max: 100 })
+      .withMessage('Category must be between 1 and 100 characters'),
     body('status')
       .optional()
       .isIn(['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'PUBLISHED', 'ARCHIVED'])
@@ -329,7 +336,7 @@ const advertisementValidation = {
   ]
 };
 
-// Search validation rules
+// Search validation rules - FIXED FOR DYNAMIC CATEGORIES
 const searchValidation = {
   search: [
     query('q')
@@ -338,8 +345,11 @@ const searchValidation = {
       .withMessage('Search query must be between 1 and 200 characters'),
     query('category')
       .optional()
-      .isIn(['GENERAL', 'NATIONAL', 'INTERNATIONAL', 'POLITICS', 'BUSINESS', 'TECHNOLOGY', 'SCIENCE', 'HEALTH', 'EDUCATION', 'ENVIRONMENT', 'SPORTS', 'ENTERTAINMENT', 'CRIME', 'LIFESTYLE', 'FINANCE', 'FOOD', 'FASHION', 'OTHERS'])
-      .withMessage('Invalid category'),
+      .isString()
+      .withMessage('Category must be a string')
+      .trim()
+      .isLength({ min: 1, max: 100 })
+      .withMessage('Category must be between 1 and 100 characters'),
     query('page')
       .optional()
       .isInt({ min: 1 })

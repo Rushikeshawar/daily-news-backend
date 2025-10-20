@@ -1,4 +1,4 @@
-// schema.prisma - UPDATED WITH ARTICLE LINKING
+// schema.prisma - UPDATED WITH DYNAMIC CATEGORIES
 
 generator client {
   provider = "prisma-client-js"
@@ -40,6 +40,7 @@ model User {
   timeSaverInteractions     TimeSaverInteraction[]
   createdTimeSaverContent   TimeSaverContent[]         @relation("TimeSaverCreator")
   createdAiArticles         AiArticle[]                @relation("AiArticleCreator")
+  createdCategories         Category[]                 @relation("CategoryCreator")
 
   @@map("users")
 }
@@ -56,12 +57,34 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+// Category Model
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String   @map("display_name")
+  description String?  @db.Text
+  slug        String   @unique
+  iconUrl     String?  @map("icon_url")
+  color       String?  @db.VarChar(7)
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator     User?    @relation("CategoryCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("categories")
+}
+
 model NewsArticle {
   id             String        @id @default(cuid())
   headline       String        @db.VarChar(500)
   briefContent   String?       @map("brief_content") @db.Text
   fullContent    String?       @map("full_content") @db.LongText
-  category       NewsCategory
+  category       String
   status         ArticleStatus @default(DRAFT)
   priorityLevel  Int           @default(0) @map("priority_level")
   authorId       String        @map("author_id")
@@ -83,10 +106,11 @@ model NewsArticle {
   favorites       UserFavorite[]
   approvalHistory ApprovalHistory[]
   readingHistory  ReadingHistory[]
-  
-  // NEW: Link to TimeSaver content
   timeSaverReferences TimeSaverContent[] @relation("ArticleToTimeSaver")
 
+  @@index([category])
+  @@index([status])
+  @@index([publishedAt])
   @@map("news_articles")
 }
 
@@ -117,7 +141,6 @@ model PasswordReset {
   @@map("password_resets")
 }
 
-// AI/ML Article Model - UPDATED WITH LINKS
 model AiArticle {
   id             String   @id @default(cuid())
   headline       String   @db.VarChar(500)
@@ -137,18 +160,17 @@ model AiArticle {
   publishedAt    DateTime @map("published_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
-  
-  // NEW: Track creator
   createdBy      String?  @map("created_by")
   updatedBy      String?  @map("updated_by")
 
   views          AiArticleView[]
   interactions   AiArticleInteraction[]
   creator        User?    @relation("AiArticleCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  
-  // NEW: Link to TimeSaver content
   timeSaverReferences TimeSaverContent[] @relation("AiArticleToTimeSaver")
 
+  @@index([category])
+  @@index([isTrending])
+  @@index([publishedAt])
   @@map("ai_articles")
 }
 
@@ -174,6 +196,8 @@ model AiArticleView {
   article AiArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
   user    User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([articleId])
+  @@index([userId])
   @@map("ai_article_views")
 }
 
@@ -187,10 +211,11 @@ model AiArticleInteraction {
   article AiArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
   user    User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([articleId])
+  @@index([userId])
   @@map("ai_article_interactions")
 }
 
-// TimeSaver Content Model - UPDATED WITH ARTICLE LINKS
 model TimeSaverContent {
   id             String            @id @default(cuid())
   title          String            @db.VarChar(500)
@@ -208,28 +233,23 @@ model TimeSaverContent {
   publishedAt    DateTime          @map("published_at")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
-  
   contentGroup   String?           @map("content_group")
   tags           String?           @db.Text
-  
-  // NEW: Link to articles and AI articles
   linkedArticleId String?         @map("linked_article_id")
   linkedAiArticleId String?       @map("linked_ai_article_id")
-  
-  // NEW: Track creator
   createdBy      String?          @map("created_by")
   updatedBy      String?          @map("updated_by")
 
   views          TimeSaverView[]
   interactions   TimeSaverInteraction[]
-  
-  // NEW: Relations to articles
   linkedArticle  NewsArticle?     @relation("ArticleToTimeSaver", fields: [linkedArticleId], references: [id], onDelete: SetNull)
   linkedAiArticle AiArticle?      @relation("AiArticleToTimeSaver", fields: [linkedAiArticleId], references: [id], onDelete: SetNull)
   creator        User?            @relation("TimeSaverCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([linkedArticleId])
   @@index([linkedAiArticleId])
+  @@index([category])
+  @@index([publishedAt])
   @@map("time_saver_content")
 }
 
@@ -245,6 +265,8 @@ model QuickUpdate {
   timestamp       DateTime @default(now())
   contentGroup    String?  @map("content_group")
 
+  @@index([category])
+  @@index([timestamp])
   @@map("quick_updates")
 }
 
@@ -260,6 +282,8 @@ model BreakingNews {
   timestamp DateTime        @default(now())
   contentGroup String?      @map("content_group")
 
+  @@index([priority])
+  @@index([timestamp])
   @@map("breaking_news")
 }
 
@@ -272,6 +296,8 @@ model TimeSaverView {
   content TimeSaverContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
   user    User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([contentId])
+  @@index([userId])
   @@map("time_saver_views")
 }
 
@@ -285,6 +311,8 @@ model TimeSaverInteraction {
   content TimeSaverContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
   user    User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([contentId])
+  @@index([userId])
   @@map("time_saver_interactions")
 }
 
@@ -319,6 +347,8 @@ model Advertisement {
 
   creator User @relation(fields: [createdBy], references: [id])
 
+  @@index([isActive])
+  @@index([startDate, endDate])
   @@map("advertisements")
 }
 
@@ -333,6 +363,8 @@ model ApprovalHistory {
   article  NewsArticle @relation(fields: [newsId], references: [id], onDelete: Cascade)
   approver User        @relation(fields: [approverId], references: [id])
 
+  @@index([newsId])
+  @@index([approverId])
   @@map("approval_history")
 }
 
@@ -345,6 +377,8 @@ model SearchHistory {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+  @@index([createdAt])
   @@map("search_history")
 }
 
@@ -381,6 +415,8 @@ model Notification {
   user    User  @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
   creator User? @relation("NotificationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
+  @@index([userId])
+  @@index([isRead])
   @@map("notifications")
 }
 
@@ -401,27 +437,6 @@ enum UserRole {
   EDITOR
   AD_MANAGER
   ADMIN
-}
-
-enum NewsCategory {
-  GENERAL
-  NATIONAL
-  INTERNATIONAL
-  POLITICS
-  BUSINESS
-  TECHNOLOGY
-  SCIENCE
-  HEALTH
-  EDUCATION
-  ENVIRONMENT
-  SPORTS
-  ENTERTAINMENT
-  CRIME
-  LIFESTYLE
-  FINANCE
-  FOOD
-  FASHION
-  OTHERS
 }
 
 enum ArticleStatus {

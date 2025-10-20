@@ -1,4 +1,5 @@
-// controllers/articlesController.js - COMPLETE FIXED VERSION
+// controllers/articlesController.js - FIXED WITH CATEGORY DEBUGGING
+
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 
@@ -13,8 +14,40 @@ const generateSlug = (headline) => {
     .substring(0, 100);
 };
 
+// Helper function to validate category exists in Category table
+const validateCategory = async (categoryName) => {
+  const category = await prisma.category.findFirst({
+    where: {
+      name: categoryName.toUpperCase(),
+      isActive: true
+    }
+  });
+  
+  if (!category) {
+    logger.warn(`Category validation failed for: ${categoryName}`);
+  }
+  
+  return category;
+};
+
+// Helper function to get category display name
+const getCategoryDisplayName = async (categoryName) => {
+  const category = await prisma.category.findFirst({
+    where: {
+      name: categoryName.toUpperCase(),
+      isActive: true
+    },
+    select: {
+      displayName: true,
+      name: true
+    }
+  });
+  
+  return category ? category.displayName : categoryName;
+};
+
 const articlesController = {
-  // Get all published articles (public) - FIXED CATEGORY FILTER
+  // Get all published articles (public)
   getAllArticles: async (req, res) => {
     try {
       const {
@@ -30,15 +63,32 @@ const articlesController = {
       const skip = (parseInt(page) - 1) * parseInt(limit);
       const take = parseInt(limit);
 
-      // Build where clause
       const where = {
         status: { in: ['PUBLISHED', 'APPROVED'] },
         publishedAt: { lte: new Date() }
       };
 
-      // FIXED: Only add category filter if category is provided AND it's not 'ALL'
+      // FIXED: Proper category filtering
       if (category && category.toUpperCase() !== 'ALL') {
-        where.category = category.toUpperCase();
+        const upperCategory = category.toUpperCase();
+        
+        // Validate category exists
+        const categoryExists = await validateCategory(upperCategory);
+        
+        if (!categoryExists) {
+          logger.warn(`Category filter requested but not found: ${category}`);
+          return res.status(400).json({
+            success: false,
+            message: `Category "${category}" does not exist or is inactive`,
+            availableCategories: await prisma.category.findMany({
+              where: { isActive: true },
+              select: { name: true, displayName: true }
+            })
+          });
+        }
+        
+        where.category = upperCategory;
+        logger.info(`Filtering by category: ${upperCategory}`);
       }
 
       if (featured === 'true' || featured === true) {
@@ -48,7 +98,6 @@ const articlesController = {
       const orderBy = {};
       orderBy[sortBy] = order;
 
-      // Build select object
       const selectObj = {
         id: true,
         headline: true,
@@ -73,7 +122,6 @@ const articlesController = {
         }
       };
 
-      // Include TimeSaver references if requested
       if (includeTimeSaver === 'true') {
         selectObj.timeSaverReferences = {
           select: {
@@ -103,8 +151,18 @@ const articlesController = {
 
       logger.info(`Found ${articles.length} articles, total count: ${totalCount}`);
 
-      // Add favorite status if user is authenticated
-      let articlesWithFavorites = articles;
+      // FIXED: Add category display names to articles
+      const articlesWithCategory = await Promise.all(
+        articles.map(async (article) => {
+          const categoryDisplayName = await getCategoryDisplayName(article.category);
+          return {
+            ...article,
+            categoryDisplayName
+          };
+        })
+      );
+
+      let articlesWithFavorites = articlesWithCategory;
       if (req.user) {
         const favoriteArticleIds = await prisma.userFavorite.findMany({
           where: {
@@ -115,13 +173,13 @@ const articlesController = {
         });
 
         const favoriteIds = new Set(favoriteArticleIds.map(fav => fav.newsId));
-        articlesWithFavorites = articles.map(article => ({
+        articlesWithFavorites = articlesWithCategory.map(article => ({
           ...article,
           isFavorite: favoriteIds.has(article.id),
           timeSaverCount: article.timeSaverReferences?.length || 0
         }));
       } else {
-        articlesWithFavorites = articles.map(article => ({
+        articlesWithFavorites = articlesWithCategory.map(article => ({
           ...article,
           timeSaverCount: article.timeSaverReferences?.length || 0
         }));
@@ -151,12 +209,13 @@ const articlesController = {
       logger.error('Get articles error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch articles'
+        message: 'Failed to fetch articles',
+        error: error.message
       });
     }
   },
 
-  // Get article by ID or slug - ENHANCED
+  // Get article by ID or slug
   getArticleById: async (req, res) => {
     try {
       const { identifier } = req.params;
@@ -166,7 +225,6 @@ const articlesController = {
         ? { id: identifier }
         : { slug: identifier };
 
-      // Build select object
       const selectObj = {
         id: true,
         headline: true,
@@ -201,7 +259,6 @@ const articlesController = {
         }
       };
 
-      // Include TimeSaver references
       if (includeTimeSaver === 'true') {
         selectObj.timeSaverReferences = {
           select: {
@@ -234,7 +291,6 @@ const articlesController = {
         });
       }
 
-      // Check permissions for unpublished articles
       if (article.status !== 'PUBLISHED' && article.status !== 'APPROVED') {
         if (!req.user) {
           return res.status(404).json({
@@ -256,7 +312,6 @@ const articlesController = {
         }
       }
 
-      // Track view if requested and article is published
       if (trackView === 'true' && (article.status === 'PUBLISHED' || article.status === 'APPROVED')) {
         await prisma.newsArticle.update({
           where: { id: article.id },
@@ -264,7 +319,6 @@ const articlesController = {
         });
         article.viewCount += 1;
 
-        // Track reading history if user is authenticated
         if (req.user) {
           await prisma.readingHistory.upsert({
             where: {
@@ -284,7 +338,6 @@ const articlesController = {
         }
       }
 
-      // Check if article is favorited by user
       let isFavorite = false;
       if (req.user) {
         const favorite = await prisma.userFavorite.findUnique({
@@ -298,11 +351,15 @@ const articlesController = {
         isFavorite = !!favorite;
       }
 
+      // FIXED: Add category display name
+      const categoryDisplayName = await getCategoryDisplayName(article.category);
+
       res.json({
         success: true,
         data: {
           article: {
             ...article,
+            categoryDisplayName,
             isFavorite,
             timeSaverCount: article.timeSaverReferences?.length || 0
           }
@@ -312,70 +369,13 @@ const articlesController = {
       logger.error('Get article error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch article'
+        message: 'Failed to fetch article',
+        error: error.message
       });
     }
   },
 
-  // Get TimeSaver content linked to an article
-  getArticleTimeSavers: async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Verify article exists
-      const article = await prisma.newsArticle.findUnique({
-        where: { id },
-        select: { id: true, headline: true, status: true }
-      });
-
-      if (!article) {
-        return res.status(404).json({
-          success: false,
-          message: 'Article not found'
-        });
-      }
-
-      // Get all TimeSaver content linked to this article
-      const timeSavers = await prisma.timeSaverContent.findMany({
-        where: { linkedArticleId: id },
-        orderBy: { publishedAt: 'desc' },
-        select: {
-          id: true,
-          title: true,
-          summary: true,
-          category: true,
-          imageUrl: true,
-          iconName: true,
-          bgColor: true,
-          keyPoints: true,
-          contentType: true,
-          viewCount: true,
-          isPriority: true,
-          publishedAt: true
-        }
-      });
-
-      res.json({
-        success: true,
-        data: {
-          article: {
-            id: article.id,
-            headline: article.headline
-          },
-          timeSavers,
-          count: timeSavers.length
-        }
-      });
-    } catch (error) {
-      logger.error('Get article TimeSavers error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch article TimeSavers'
-      });
-    }
-  },
-
-  // Create new article - FIXED
+  // Create new article - FIXED FOR DYNAMIC CATEGORIES
   createArticle: async (req, res) => {
     try {
       const {
@@ -390,6 +390,32 @@ const articlesController = {
         metaDescription,
         scheduledAt
       } = req.body;
+
+      // Validate required fields
+      if (!headline || !briefContent || !fullContent || !category) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing required fields: headline, briefContent, fullContent, and category are required'
+        });
+      }
+
+      const upperCategory = category.toUpperCase();
+
+      // Validate category exists and is active
+      const categoryRecord = await validateCategory(upperCategory);
+      if (!categoryRecord) {
+        const availableCategories = await prisma.category.findMany({
+          where: { isActive: true },
+          select: { name: true, displayName: true }
+        });
+        
+        return res.status(400).json({
+          success: false,
+          message: `Category "${category}" does not exist or is inactive.`,
+          hint: 'Please use one of the available categories or create a new one first.',
+          availableCategories
+        });
+      }
 
       let slug = generateSlug(headline);
       
@@ -417,7 +443,7 @@ const articlesController = {
           headline,
           briefContent,
           fullContent,
-          category: category.toUpperCase(), // Ensure category is uppercase
+          category: upperCategory,
           tags,
           priorityLevel,
           featuredImage,
@@ -441,23 +467,32 @@ const articlesController = {
         }
       });
 
+      // Add category display name
+      const categoryDisplayName = await getCategoryDisplayName(article.category);
+
       logger.info(`Article created: ${article.headline} by ${req.user.email} with status ${status}, category: ${article.category}`);
 
       res.status(201).json({
         success: true,
         message: 'Article created successfully',
-        data: { article }
+        data: { 
+          article: {
+            ...article,
+            categoryDisplayName
+          }
+        }
       });
     } catch (error) {
       logger.error('Create article error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to create article'
+        message: 'Failed to create article',
+        error: error.message
       });
     }
   },
 
-  // Update article
+  // Update article - FIXED FOR DYNAMIC CATEGORIES
   updateArticle: async (req, res) => {
     try {
       const { id } = req.params;
@@ -492,9 +527,25 @@ const articlesController = {
         });
       }
 
-      // Ensure category is uppercase if provided
+      // Validate category if being updated
       if (updateData.category) {
-        updateData.category = updateData.category.toUpperCase();
+        const upperCategory = updateData.category.toUpperCase();
+        const categoryRecord = await validateCategory(upperCategory);
+        
+        if (!categoryRecord) {
+          const availableCategories = await prisma.category.findMany({
+            where: { isActive: true },
+            select: { name: true, displayName: true }
+          });
+          
+          return res.status(400).json({
+            success: false,
+            message: `Category "${updateData.category}" does not exist or is inactive.`,
+            availableCategories
+          });
+        }
+        
+        updateData.category = upperCategory;
       }
 
       if (updateData.headline && updateData.headline !== existingArticle.headline) {
@@ -549,18 +600,27 @@ const articlesController = {
         }
       });
 
+      // Add category display name
+      const categoryDisplayName = await getCategoryDisplayName(article.category);
+
       logger.info(`Article updated: ${article.headline} by ${req.user.email}, category: ${article.category}`);
 
       res.json({
         success: true,
         message: 'Article updated successfully',
-        data: { article }
+        data: { 
+          article: {
+            ...article,
+            categoryDisplayName
+          }
+        }
       });
     } catch (error) {
       logger.error('Update article error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to update article'
+        message: 'Failed to update article',
+        error: error.message
       });
     }
   },
@@ -672,12 +732,23 @@ const articlesController = {
         prisma.newsArticle.count({ where })
       ]);
 
+      // Add category display names
+      const articlesWithCategory = await Promise.all(
+        articles.map(async (article) => {
+          const categoryDisplayName = await getCategoryDisplayName(article.category);
+          return {
+            ...article,
+            categoryDisplayName
+          };
+        })
+      );
+
       const totalPages = Math.ceil(totalCount / take);
 
       res.json({
         success: true,
         data: {
-          articles,
+          articles: articlesWithCategory,
           pagination: {
             page: parseInt(page),
             limit: take,
@@ -697,7 +768,7 @@ const articlesController = {
     }
   },
 
-  // Approve/Reject article - FIXED
+  // Approve/Reject article
   approveRejectArticle: async (req, res) => {
     try {
       const { id } = req.params;
@@ -766,7 +837,7 @@ const articlesController = {
     }
   },
 
-  // Get pending articles - FIXED
+  // Get pending articles
   getPendingArticles: async (req, res) => {
     try {
       const {
@@ -787,8 +858,6 @@ const articlesController = {
 
       const orderBy = {};
       orderBy[sortBy] = order;
-
-      logger.info(`Fetching pending articles with where: ${JSON.stringify(where)}`);
 
       const [articles, totalCount] = await Promise.all([
         prisma.newsArticle.findMany({
@@ -818,14 +887,23 @@ const articlesController = {
         prisma.newsArticle.count({ where })
       ]);
 
-      logger.info(`Found ${articles.length} pending articles out of ${totalCount} total`);
+      // Add category display names
+      const articlesWithCategory = await Promise.all(
+        articles.map(async (article) => {
+          const categoryDisplayName = await getCategoryDisplayName(article.category);
+          return {
+            ...article,
+            categoryDisplayName
+          };
+        })
+      );
 
       const totalPages = Math.ceil(totalCount / take);
 
       res.json({
         success: true,
         data: {
-          articles,
+          articles: articlesWithCategory,
           pagination: {
             page: parseInt(page),
             limit: take,
@@ -1030,15 +1108,88 @@ const articlesController = {
         }
       });
 
+      // Add category display names
+// Continue getTrendingArticles function:
+      const articlesWithCategory = await Promise.all(
+        articles.map(async (article) => {
+          const categoryDisplayName = await getCategoryDisplayName(article.category);
+          return {
+            ...article,
+            categoryDisplayName
+          };
+        })
+      );
+
       res.json({
         success: true,
-        data: { articles }
+        data: { articles: articlesWithCategory }
       });
     } catch (error) {
       logger.error('Get trending articles error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to fetch trending articles'
+      });
+    }
+  },
+
+  // Get TimeSaver content linked to an article
+  getArticleTimeSavers: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const article = await prisma.newsArticle.findUnique({
+        where: { id },
+        select: { id: true, headline: true, status: true, category: true }
+      });
+
+      if (!article) {
+        return res.status(404).json({
+          success: false,
+          message: 'Article not found'
+        });
+      }
+
+      const timeSavers = await prisma.timeSaverContent.findMany({
+        where: { linkedArticleId: id },
+        orderBy: { publishedAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          summary: true,
+          category: true,
+          imageUrl: true,
+          iconName: true,
+          bgColor: true,
+          keyPoints: true,
+          contentType: true,
+          viewCount: true,
+          isPriority: true,
+          publishedAt: true
+        }
+      });
+
+      // Add category display name
+      const categoryDisplayName = await getCategoryDisplayName(article.category);
+
+      res.json({
+        success: true,
+        data: {
+          article: {
+            id: article.id,
+            headline: article.headline,
+            category: article.category,
+            categoryDisplayName
+          },
+          timeSavers,
+          count: timeSavers.length
+        }
+      });
+    } catch (error) {
+      logger.error('Get article TimeSavers error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch article TimeSavers'
       });
     }
   }
