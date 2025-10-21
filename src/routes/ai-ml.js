@@ -1,4 +1,4 @@
-// routes/ai-ml.js - ENHANCED VERSION
+// routes/ai-ml.js - ENHANCED WITH CATEGORY MANAGEMENT ROUTES
 const express = require('express');
 const { optionalAuth, authenticate, authorize } = require('../middleware/auth');
 const { genericValidation } = require('../middleware/validation');
@@ -99,6 +99,40 @@ router.delete(
   authorize('EDITOR', 'AD_MANAGER'),
   genericValidation.id,
   aiMlController.deleteAiMlArticle
+);
+
+// @desc    Create a new category
+// @route   POST /api/ai-ml/categories
+// @access  Private (EDITOR, AD_MANAGER)
+// @body    { name, displayName, description, iconUrl, color, isActive, sortOrder }
+router.post(
+  '/categories',
+  authenticate,
+  authorize('EDITOR', 'AD_MANAGER'),
+  aiMlController.createCategory
+);
+
+// @desc    Update a category
+// @route   PUT /api/ai-ml/categories/:id
+// @access  Private (EDITOR, AD_MANAGER)
+// @body    { name, displayName, description, iconUrl, color, isActive, sortOrder }
+router.put(
+  '/categories/:id',
+  authenticate,
+  authorize('EDITOR', 'AD_MANAGER'),
+  genericValidation.id,
+  aiMlController.updateCategory
+);
+
+// @desc    Delete a category
+// @route   DELETE /api/ai-ml/categories/:id
+// @access  Private (EDITOR, AD_MANAGER)
+router.delete(
+  '/categories/:id',
+  authenticate,
+  authorize('EDITOR', 'AD_MANAGER'),
+  genericValidation.id,
+  aiMlController.deleteCategory
 );
 
 // ==================== AI/ML ANALYTICS ROUTES ====================

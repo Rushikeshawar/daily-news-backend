@@ -1,6 +1,6 @@
-// controllers/aiMlController.js - ENHANCED VERSION
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
+const slugify = require('slugify');
 
 const aiMlController = {
   // Get AI/ML news articles with filtering and pagination - ENHANCED
@@ -198,7 +198,7 @@ const aiMlController = {
     }
   },
 
-  // NEW: Get TimeSaver content linked to an AI article
+  // Get TimeSaver content linked to an AI article
   getAiArticleTimeSavers: async (req, res) => {
     try {
       const { id } = req.params;
@@ -955,6 +955,233 @@ const aiMlController = {
       res.status(500).json({
         success: false,
         message: 'Failed to delete AI/ML article'
+      });
+    }
+  },
+
+  // Create a new category (EDITOR and AD_MANAGER)
+  // Create a new AI/ML category (EDITOR and AD_MANAGER)
+createCategory: async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      iconUrl,
+      isHot = false,
+      articleCount = 0
+    } = req.body;
+
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name is required'
+      });
+    }
+
+    // Check if category with the same name already exists (case-insensitive)
+    const existingCategory = await prisma.$queryRaw`
+      SELECT * FROM ai_categories 
+      WHERE LOWER(name) = LOWER(${name})
+      LIMIT 1
+    `;
+
+    if (existingCategory.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Category with this name already exists'
+      });
+    }
+
+    const category = await prisma.aiCategory.create({
+      data: {
+        name,
+        description,
+        iconUrl,
+        isHot,
+        articleCount,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        iconUrl: true,
+        isHot: true,
+        articleCount: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    logger.info(`AI/ML category created: ${name} by ${req.user?.email || 'unknown'} (${req.user?.role || 'unknown'})`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Category created successfully',
+      data: { category }
+    });
+  } catch (error) {
+    logger.error('Create AI/ML category error:', {
+      message: error.message,
+      code: error.code,
+      meta: error.meta
+    });
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        message: `Category with this ${error.meta.target} already exists`
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create category',
+      error: error.message
+    });
+  }
+},
+
+  // Update a category (EDITOR and AD_MANAGER)
+  updateCategory: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        name,
+        displayName,
+        description,
+        iconUrl,
+        color,
+        isActive,
+        sortOrder
+      } = req.body;
+
+      // Check if category exists
+      const existingCategory = await prisma.category.findUnique({
+        where: { id },
+        select: { id: true, name: true, slug: true }
+      });
+
+      if (!existingCategory) {
+        return res.status(404).json({
+          success: false,
+          message: 'Category not found'
+        });
+      }
+
+      // Prepare update data
+      const updateData = {};
+      if (name !== undefined) {
+        updateData.name = name;
+        updateData.slug = slugify(name, { lower: true, strict: true });
+      }
+      if (displayName !== undefined) updateData.displayName = displayName;
+      if (description !== undefined) updateData.description = description;
+      if (iconUrl !== undefined) updateData.iconUrl = iconUrl;
+      if (color !== undefined) updateData.color = color;
+      if (isActive !== undefined) updateData.isActive = isActive;
+      if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder);
+      updateData.updatedAt = new Date();
+
+      // Check for name or slug conflict if name is being updated
+      if (name !== undefined) {
+        const conflictingCategory = await prisma.category.findFirst({
+          where: {
+            OR: [
+              { name: { equals: name, mode: 'insensitive' } },
+              { slug: { equals: updateData.slug, mode: 'insensitive' } }
+            ],
+            NOT: { id }
+          }
+        });
+
+        if (conflictingCategory) {
+          return res.status(400).json({
+            success: false,
+            message: 'Category with this name or slug already exists'
+          });
+        }
+      }
+
+      const category = await prisma.category.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+          description: true,
+          slug: true,
+          iconUrl: true,
+          color: true,
+          isActive: true,
+          sortOrder: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      logger.info(`Category updated: ${id} by ${req.user.email} (${req.user.role})`);
+
+      res.json({
+        success: true,
+        message: 'Category updated successfully',
+        data: { category }
+      });
+    } catch (error) {
+      logger.error('Update category error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update category'
+      });
+    }
+  },
+
+  // Delete a category (EDITOR and AD_MANAGER)
+  deleteCategory: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if category exists
+      const existingCategory = await prisma.category.findUnique({
+        where: { id },
+        select: { id: true, name: true }
+      });
+
+      if (!existingCategory) {
+        return res.status(404).json({
+          success: false,
+          message: 'Category not found'
+        });
+      }
+
+      // Check if category is used by any articles
+      const articleCount = await prisma.aiArticle.count({
+        where: { category: existingCategory.name }
+      });
+
+      if (articleCount > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot delete category with associated articles'
+        });
+      }
+
+      await prisma.category.delete({
+        where: { id }
+      });
+
+      logger.info(`Category deleted: ${id} by ${req.user.email} (${req.user.role})`);
+
+      res.json({
+        success: true,
+        message: 'Category deleted successfully'
+      });
+    } catch (error) {
+      logger.error('Delete category error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete category'
       });
     }
   }
