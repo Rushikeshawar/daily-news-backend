@@ -1,9 +1,19 @@
-// controllers/timeSaverController.js
+// ============================================
+// FILE: controllers/timeSaverController.js
+// COMPLETE CONTROLLER WITH ALL FUNCTIONALITY
+// ============================================
+
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 
 class TimeSaverController {
-  // @desc    Get time saver content with enhanced filtering and linked articles
+  // ==================== PUBLIC ROUTES ====================
+
+  /**
+   * @desc    Get time saver content with enhanced filtering and categorization
+   * @route   GET /api/time-saver/content
+   * @access  Public
+   */
   static async getContent(req, res) {
     try {
       const {
@@ -11,21 +21,43 @@ class TimeSaverController {
         limit = 10,
         category,
         contentGroup,
+        contentType,
+        isPriority,
         sortBy = 'publishedAt',
         order = 'desc',
-        includeLinked = 'true'
+        includeLinked = 'true',
+        search
       } = req.query;
 
       const skip = (parseInt(page) - 1) * parseInt(limit);
       const take = parseInt(limit);
 
+      // Build where clause
       const where = {};
+
       if (category && category !== 'ALL') {
         where.category = category;
       }
-      
+
+      if (contentType) {
+        where.contentType = contentType;
+      }
+
+      if (isPriority !== undefined) {
+        where.isPriority = isPriority === 'true';
+      }
+
+      // Search functionality
+      if (search) {
+        where.OR = [
+          { title: { contains: search } },
+          { summary: { contains: search } },
+          { tags: { contains: search } }
+        ];
+      }
+
       // Enhanced filtering for content groups
-      if (contentGroup) {
+      if (contentGroup && contentGroup !== 'ALL') {
         switch (contentGroup) {
           case 'today_new':
             const today = new Date();
@@ -58,18 +90,10 @@ class TimeSaverController {
             ];
             break;
           case 'viral_buzz':
-            where.OR = [
-              { viewCount: { gte: 1000 } },
-              { tags: { contains: 'viral' } },
-              { tags: { contains: 'trending' } }
-            ];
+            where.viewCount = { gte: 1000 };
             break;
           case 'changing_norms':
-            where.OR = [
-              { category: { contains: 'society' } },
-              { category: { contains: 'culture' } },
-              { tags: { contains: 'social' } }
-            ];
+            where.tags = { contains: 'social' };
             break;
         }
       }
@@ -77,7 +101,7 @@ class TimeSaverController {
       const orderBy = {};
       orderBy[sortBy] = order;
 
-      // Build select object with optional linked articles
+      // Build select object
       const selectObj = {
         id: true,
         title: true,
@@ -96,10 +120,12 @@ class TimeSaverController {
         tags: true,
         contentGroup: true,
         linkedArticleId: true,
-        linkedAiArticleId: true
+        linkedAiArticleId: true,
+        createdAt: true,
+        updatedAt: true
       };
 
-      // Include linked article details if requested
+      // Include linked articles if requested
       if (includeLinked === 'true') {
         selectObj.linkedArticle = {
           select: {
@@ -150,28 +176,30 @@ class TimeSaverController {
 
       res.json({
         success: true,
-        data: {
-          content,
-          pagination: {
-            page: parseInt(page),
-            limit: take,
-            totalPages,
-            totalCount,
-            hasNext: parseInt(page) < totalPages,
-            hasPrev: parseInt(page) > 1
-          }
+        data: content,
+        pagination: {
+          page: parseInt(page),
+          limit: take,
+          totalCount,
+          totalPages,
+          hasMore: parseInt(page) < totalPages
         }
       });
     } catch (error) {
-      logger.error('Get time saver content error:', error);
+      logger.error('Error fetching time saver content:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch time saver content'
+        message: 'Failed to fetch time saver content',
+        error: error.message
       });
     }
   }
 
-  // @desc    Get single TimeSaver content with full linked article details
+  /**
+   * @desc    Get single TimeSaver content by ID with full linked article details
+   * @route   GET /api/time-saver/content/:id
+   * @access  Public
+   */
   static async getContentById(req, res) {
     try {
       const { id } = req.params;
@@ -180,17 +208,7 @@ class TimeSaverController {
         where: { id },
         include: {
           linkedArticle: {
-            select: {
-              id: true,
-              headline: true,
-              briefContent: true,
-              fullContent: true,
-              category: true,
-              featuredImage: true,
-              slug: true,
-              viewCount: true,
-              shareCount: true,
-              publishedAt: true,
+            include: {
               author: {
                 select: {
                   id: true,
@@ -201,29 +219,30 @@ class TimeSaverController {
               }
             }
           },
-          linkedAiArticle: {
-            select: {
-              id: true,
-              headline: true,
-              briefContent: true,
-              fullContent: true,
-              category: true,
-              featuredImage: true,
-              viewCount: true,
-              shareCount: true,
-              publishedAt: true,
-              aiModel: true,
-              aiApplication: true,
-              companyMentioned: true,
-              technologyType: true
+          linkedAiArticle: true,
+          views: {
+            take: 10,
+            orderBy: { timestamp: 'desc' },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  avatar: true
+                }
+              }
             }
+          },
+          interactions: {
+            take: 10,
+            orderBy: { timestamp: 'desc' }
           },
           creator: {
             select: {
               id: true,
               fullName: true,
-              email: true,
-              role: true
+              avatar: true,
+              email: true
             }
           }
         }
@@ -232,46 +251,150 @@ class TimeSaverController {
       if (!content) {
         return res.status(404).json({
           success: false,
-          message: 'TimeSaver content not found'
+          message: 'Time saver content not found'
         });
       }
 
       res.json({
         success: true,
-        data: { content }
+        data: content
       });
     } catch (error) {
-      logger.error('Get TimeSaver content by ID error:', error);
+      logger.error('Error fetching time saver content:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch TimeSaver content'
+        message: 'Failed to fetch time saver content',
+        error: error.message
       });
     }
   }
 
-  // @desc    Get all TimeSaver content linked to a specific article
+  /**
+   * @desc    Get all TimeSaver content linked to a specific article
+   * @route   GET /api/time-saver/by-article/:articleId
+   * @access  Public
+   * @query   type=news|ai (default: news)
+   */
   static async getContentByArticle(req, res) {
     try {
       const { articleId } = req.params;
-      const { type = 'news' } = req.query; // 'news' or 'ai'
+      const { type = 'news' } = req.query;
 
-      const where = type === 'ai' 
-        ? { linkedAiArticleId: articleId }
-        : { linkedArticleId: articleId };
+      const where = {};
+      if (type === 'ai') {
+        where.linkedAiArticleId = articleId;
+      } else {
+        where.linkedArticleId = articleId;
+      }
 
       const content = await prisma.timeSaverContent.findMany({
         where,
         orderBy: { publishedAt: 'desc' },
+        include: {
+          linkedArticle: {
+            select: {
+              id: true,
+              headline: true,
+              slug: true
+            }
+          },
+          linkedAiArticle: {
+            select: {
+              id: true,
+              headline: true
+            }
+          }
+        }
+      });
+
+      res.json({
+        success: true,
+        data: content,
+        count: content.length
+      });
+    } catch (error) {
+      logger.error('Error fetching content by article:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch content by article',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * @desc    Get enhanced quick stats for dashboard with category counts
+   * @route   GET /api/time-saver/stats
+   * @access  Public
+   */
+  static async getStats(req, res) {
+    try {
+      const [
+        totalContent,
+        priorityCount,
+        todayCount,
+        categoryStats,
+        contentTypeStats,
+        totalViews,
+        totalInteractions
+      ] = await Promise.all([
+        // Total content count
+        prisma.timeSaverContent.count(),
+        
+        // Priority content count
+        prisma.timeSaverContent.count({ where: { isPriority: true } }),
+        
+        // Today's content
+        prisma.timeSaverContent.count({
+          where: {
+            publishedAt: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0))
+            }
+          }
+        }),
+        
+        // Category breakdown
+        prisma.timeSaverContent.groupBy({
+          by: ['category'],
+          _count: { id: true },
+          orderBy: { _count: { id: 'desc' } }
+        }),
+        
+        // Content type breakdown
+        prisma.timeSaverContent.groupBy({
+          by: ['contentType'],
+          _count: { id: true }
+        }),
+        
+        // Total views
+        prisma.timeSaverView.count(),
+        
+        // Total interactions
+        prisma.timeSaverInteraction.count()
+      ]);
+
+      // Get top viewed content
+      const topViewed = await prisma.timeSaverContent.findMany({
+        take: 5,
+        orderBy: { viewCount: 'desc' },
         select: {
           id: true,
           title: true,
-          summary: true,
           category: true,
-          imageUrl: true,
-          iconName: true,
-          bgColor: true,
-          contentType: true,
           viewCount: true,
+          publishedAt: true
+        }
+      });
+
+      // Get recent content
+      const recentContent = await prisma.timeSaverContent.findMany({
+        take: 5,
+        orderBy: { publishedAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          category: true,
+          isPriority: true,
           publishedAt: true
         }
       });
@@ -279,282 +402,205 @@ class TimeSaverController {
       res.json({
         success: true,
         data: {
-          content,
-          articleId,
-          articleType: type,
-          count: content.length
+          overview: {
+            totalContent,
+            priorityCount,
+            todayCount,
+            totalViews,
+            totalInteractions
+          },
+          categoryStats: categoryStats.map(stat => ({
+            category: stat.category,
+            count: stat._count.id
+          })),
+          contentTypeStats: contentTypeStats.map(stat => ({
+            type: stat.contentType,
+            count: stat._count.id
+          })),
+          topViewed,
+          recentContent
         }
       });
     } catch (error) {
-      logger.error('Get content by article error:', error);
+      logger.error('Error fetching stats:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch content by article'
+        message: 'Failed to fetch stats',
+        error: error.message
       });
     }
   }
 
-  // @desc    Get enhanced quick stats for dashboard with category counts
-  static async getStats(req, res) {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const monthAgo = new Date();
-      monthAgo.setDate(monthAgo.getDate() - 30);
-
-      const [
-        storiesCount,
-        updatesCount,
-        breakingCount,
-        todayNewCount,
-        criticalCount,
-        weeklyCount,
-        monthlyCount,
-        viralBuzzCount,
-        changingNormsCount,
-        linkedArticlesCount,
-        linkedAiArticlesCount,
-        recentContent
-      ] = await Promise.all([
-        prisma.timeSaverContent.count({
-          where: {
-            contentType: { in: ['DIGEST', 'BRIEFING', 'SUMMARY'] },
-            publishedAt: { gte: today }
-          }
-        }),
-
-        prisma.timeSaverContent.count({
-          where: {
-            contentType: { in: ['QUICK_UPDATE', 'HIGHLIGHTS'] },
-            publishedAt: { gte: today }
-          }
-        }),
-
-        prisma.breakingNews ? prisma.breakingNews.count({
-          where: { timestamp: { gte: today } }
-        }).catch(() => 0) : Promise.resolve(0),
-
-        prisma.timeSaverContent.count({
-          where: { publishedAt: { gte: today } }
-        }),
-
-        prisma.timeSaverContent.count({
-          where: {
-            OR: [
-              { isPriority: true },
-              { contentType: 'DIGEST' }
-            ]
-          }
-        }),
-
-        prisma.timeSaverContent.count({
-          where: {
-            publishedAt: { gte: weekAgo },
-            contentType: 'HIGHLIGHTS'
-          }
-        }),
-
-        prisma.timeSaverContent.count({
-          where: { publishedAt: { gte: monthAgo } }
-        }),
-
-        prisma.timeSaverContent.count({
-          where: {
-            OR: [
-              { viewCount: { gte: 1000 } },
-              { tags: { contains: 'viral' } },
-              { tags: { contains: 'trending' } }
-            ]
-          }
-        }),
-
-        prisma.timeSaverContent.count({
-          where: {
-            OR: [
-              { category: { contains: 'society' } },
-              { category: { contains: 'culture' } },
-              { tags: { contains: 'social' } }
-            ]
-          }
-        }),
-
-        // Count linked articles
-        prisma.timeSaverContent.count({
-          where: { linkedArticleId: { not: null } }
-        }),
-
-        // Count linked AI articles
-        prisma.timeSaverContent.count({
-          where: { linkedAiArticleId: { not: null } }
-        }),
-
-        prisma.timeSaverContent.findFirst({
-          orderBy: { publishedAt: 'desc' },
-          select: { publishedAt: true }
-        })
-      ]);
-
-      const stats = {
-        storiesCount,
-        updatesCount,
-        breakingCount,
-        todayNewCount: Math.min(todayNewCount, 5),
-        criticalCount: Math.min(criticalCount, 7),
-        weeklyCount: Math.min(weeklyCount, 15),
-        monthlyCount: Math.min(monthlyCount, 30),
-        viralBuzzCount: Math.min(viralBuzzCount, 10),
-        changingNormsCount: Math.min(changingNormsCount, 10),
-        linkedArticlesCount,
-        linkedAiArticlesCount,
-        totalLinkedCount: linkedArticlesCount + linkedAiArticlesCount,
-        lastUpdated: recentContent?.publishedAt || new Date()
-      };
-
-      res.json({
-        success: true,
-        data: { stats }
-      });
-    } catch (error) {
-      logger.error('Get enhanced time saver stats error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch time saver stats'
-      });
-    }
-  }
-
-  // @desc    Get content by specific category group
+  /**
+   * @desc    Get content by specific category group
+   * @route   GET /api/time-saver/category/:group
+   * @access  Public
+   */
   static async getCategoryContent(req, res) {
     try {
       const { group } = req.params;
-      const { limit = 20, includeLinked = 'true' } = req.query;
-      
-      const where = {};
-      const take = Math.min(parseInt(limit), 50);
-      
-      switch (group) {
-        case 'today_new':
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          where.publishedAt = { gte: today };
-          break;
-        case 'breaking_critical':
-          where.OR = [
-            { isPriority: true },
-            { contentType: 'DIGEST' }
-          ];
-          break;
-        case 'weekly_highlights':
-          const weekAgo = new Date();
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          where.AND = [
-            { publishedAt: { gte: weekAgo } },
-            { contentType: 'HIGHLIGHTS' }
-          ];
-          break;
-        case 'monthly_top':
-          const monthAgo = new Date();
-          monthAgo.setDate(monthAgo.getDate() - 30);
-          where.publishedAt = { gte: monthAgo };
-          break;
-        case 'brief_updates':
-          where.OR = [
-            { contentType: 'QUICK_UPDATE' },
-            { readTimeSeconds: { lte: 60 } }
-          ];
-          break;
-        case 'viral_buzz':
-          where.OR = [
-            { viewCount: { gte: 1000 } },
-            { tags: { contains: 'viral' } },
-            { tags: { contains: 'trending' } }
-          ];
-          break;
-        case 'changing_norms':
-          where.OR = [
-            { category: { contains: 'society' } },
-            { category: { contains: 'culture' } },
-            { tags: { contains: 'social' } }
-          ];
-          break;
-        default:
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid category group'
-          });
-      }
+      const { page = 1, limit = 10 } = req.query;
 
-      const selectObj = {
-        id: true,
-        title: true,
-        summary: true,
-        category: true,
-        imageUrl: true,
-        iconName: true,
-        bgColor: true,
-        keyPoints: true,
-        sourceUrl: true,
-        readTimeSeconds: true,
-        viewCount: true,
-        isPriority: true,
-        contentType: true,
-        publishedAt: true,
-        tags: true,
-        contentGroup: true,
-        linkedArticleId: true,
-        linkedAiArticleId: true
-      };
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const take = parseInt(limit);
 
-      if (includeLinked === 'true') {
-        selectObj.linkedArticle = {
-          select: {
-            id: true,
-            headline: true,
-            slug: true,
-            category: true,
-            featuredImage: true
+      const [content, totalCount] = await Promise.all([
+        prisma.timeSaverContent.findMany({
+          where: { category: group },
+          skip,
+          take,
+          orderBy: { publishedAt: 'desc' },
+          include: {
+            linkedArticle: {
+              select: {
+                id: true,
+                headline: true,
+                slug: true
+              }
+            },
+            linkedAiArticle: {
+              select: {
+                id: true,
+                headline: true
+              }
+            }
           }
-        };
-        selectObj.linkedAiArticle = {
-          select: {
-            id: true,
-            headline: true,
-            category: true,
-            featuredImage: true
-          }
-        };
-      }
-
-      const content = await prisma.timeSaverContent.findMany({
-        where,
-        take,
-        orderBy: [
-          { isPriority: 'desc' },
-          { publishedAt: 'desc' }
-        ],
-        select: selectObj
-      });
+        }),
+        prisma.timeSaverContent.count({ where: { category: group } })
+      ]);
 
       res.json({
         success: true,
-        data: {
-          content,
-          category: group,
-          totalCount: content.length
+        data: content,
+        pagination: {
+          page: parseInt(page),
+          limit: take,
+          totalCount,
+          totalPages: Math.ceil(totalCount / take)
         }
       });
     } catch (error) {
-      logger.error('Get category content error:', error);
+      logger.error('Error fetching category content:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch category content'
+        message: 'Failed to fetch category content',
+        error: error.message
       });
     }
   }
 
-  // @desc    Create enhanced time saver content with article linking
+  /**
+   * @desc    Track time saver content view
+   * @route   POST /api/time-saver/content/:id/view
+   * @access  Public
+   */
+  static async trackView(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.userId || null;
+
+      // Check if content exists
+      const content = await prisma.timeSaverContent.findUnique({
+        where: { id }
+      });
+
+      if (!content) {
+        return res.status(404).json({
+          success: false,
+          message: 'Content not found'
+        });
+      }
+
+      // Create view record and increment view count
+      await Promise.all([
+        prisma.timeSaverView.create({
+          data: {
+            contentId: id,
+            userId
+          }
+        }),
+        prisma.timeSaverContent.update({
+          where: { id },
+          data: { viewCount: { increment: 1 } }
+        })
+      ]);
+
+      res.json({
+        success: true,
+        message: 'View tracked successfully'
+      });
+    } catch (error) {
+      logger.error('Error tracking view:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to track view',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * @desc    Track time saver content interaction
+   * @route   POST /api/time-saver/content/:id/interaction
+   * @access  Public
+   */
+  static async trackInteraction(req, res) {
+    try {
+      const { id } = req.params;
+      const { interactionType } = req.body;
+      const userId = req.user?.userId || null;
+
+      // Validate interaction type
+      const validTypes = ['SHARE', 'BOOKMARK', 'LIKE', 'SAVE_FOR_LATER', 'MARK_AS_READ'];
+      if (!validTypes.includes(interactionType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid interaction type. Must be one of: ${validTypes.join(', ')}`
+        });
+      }
+
+      // Check if content exists
+      const content = await prisma.timeSaverContent.findUnique({
+        where: { id }
+      });
+
+      if (!content) {
+        return res.status(404).json({
+          success: false,
+          message: 'Content not found'
+        });
+      }
+
+      // Create interaction record
+      await prisma.timeSaverInteraction.create({
+        data: {
+          contentId: id,
+          userId,
+          interactionType
+        }
+      });
+
+      res.json({
+        success: true,
+        message: 'Interaction tracked successfully'
+      });
+    } catch (error) {
+      logger.error('Error tracking interaction:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to track interaction',
+        error: error.message
+      });
+    }
+  }
+
+  // ==================== PRIVATE ROUTES (EDITOR, AD_MANAGER) ====================
+
+  /**
+   * @desc    Create enhanced time saver content
+   * @route   POST /api/time-saver/content
+   * @access  Private (EDITOR, AD_MANAGER)
+   */
   static async createContent(req, res) {
     try {
       const {
@@ -569,12 +615,13 @@ class TimeSaverController {
         readTimeSeconds,
         isPriority = false,
         contentType = 'DIGEST',
+        tags,
         contentGroup,
-        tags = [],
         linkedArticleId,
         linkedAiArticleId
       } = req.body;
 
+      // Validation
       if (!title || !summary || !category) {
         return res.status(400).json({
           success: false,
@@ -582,58 +629,42 @@ class TimeSaverController {
         });
       }
 
+      // Validate contentType enum
       const validContentTypes = ['DIGEST', 'QUICK_UPDATE', 'BRIEFING', 'SUMMARY', 'HIGHLIGHTS'];
       if (!validContentTypes.includes(contentType)) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid content type'
+          message: `Invalid contentType. Must be one of: ${validContentTypes.join(', ')}`
         });
       }
 
-      // Validate linked articles if provided
+      // Validate linkedArticleId if provided
       if (linkedArticleId) {
-        const article = await prisma.newsArticle.findUnique({
-          where: { id: linkedArticleId },
-          select: { id: true, status: true }
+        const articleExists = await prisma.newsArticle.findUnique({
+          where: { id: linkedArticleId }
         });
-        
-        if (!article) {
-          return res.status(400).json({
+        if (!articleExists) {
+          return res.status(404).json({
             success: false,
             message: 'Linked article not found'
           });
         }
-        
-        if (article.status !== 'PUBLISHED') {
-          return res.status(400).json({
-            success: false,
-            message: 'Can only link to published articles'
-          });
-        }
       }
 
+      // Validate linkedAiArticleId if provided
       if (linkedAiArticleId) {
-        const aiArticle = await prisma.aiArticle.findUnique({
-          where: { id: linkedAiArticleId },
-          select: { id: true }
+        const aiArticleExists = await prisma.aiArticle.findUnique({
+          where: { id: linkedAiArticleId }
         });
-        
-        if (!aiArticle) {
-          return res.status(400).json({
+        if (!aiArticleExists) {
+          return res.status(404).json({
             success: false,
             message: 'Linked AI article not found'
           });
         }
       }
 
-      // Process tags
-      let processedTags = [];
-      if (typeof tags === 'string') {
-        processedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-      } else if (Array.isArray(tags)) {
-        processedTags = tags.filter(tag => typeof tag === 'string' && tag.trim().length > 0);
-      }
-
+      // Create content
       const content = await prisma.timeSaverContent.create({
         data: {
           title,
@@ -642,153 +673,95 @@ class TimeSaverController {
           imageUrl,
           iconName,
           bgColor,
-          keyPoints: Array.isArray(keyPoints) ? keyPoints.join('|') : keyPoints,
+          keyPoints,
           sourceUrl,
-          readTimeSeconds: readTimeSeconds ? parseInt(readTimeSeconds) : null,
+          readTimeSeconds: readTimeSeconds || 60,
           isPriority,
           contentType,
+          tags,
           contentGroup,
-          tags: processedTags.join(','),
           linkedArticleId,
           linkedAiArticleId,
           publishedAt: new Date(),
-          createdBy: req.user.id
+          createdBy: req.user?.userId
         },
         include: {
           linkedArticle: {
             select: {
               id: true,
               headline: true,
+              briefContent: true,
+              category: true,
               slug: true,
-              category: true
+              publishedAt: true
             }
           },
           linkedAiArticle: {
             select: {
               id: true,
               headline: true,
-              category: true
+              briefContent: true,
+              category: true,
+              publishedAt: true
+            }
+          },
+          creator: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true
             }
           }
         }
       });
 
-      logger.info(`Time saver content created: ${title} by ${req.user.email} (${req.user.role})`);
+      logger.info(`Time saver content created: ${content.id} by user ${req.user?.userId}`);
 
       res.status(201).json({
         success: true,
         message: 'Time saver content created successfully',
-        data: { content }
+        data: content
       });
     } catch (error) {
-      logger.error('Create time saver content error:', error);
+      logger.error('Error creating time saver content:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to create time saver content'
+        message: 'Failed to create time saver content',
+        error: error.message
       });
     }
   }
 
-  // @desc    Update time saver content with article linking
+  /**
+   * @desc    Update time saver content
+   * @route   PUT /api/time-saver/content/:id
+   * @access  Private (EDITOR, AD_MANAGER)
+   */
   static async updateContent(req, res) {
     try {
       const { id } = req.params;
-      const {
-        title,
-        summary,
-        category,
-        imageUrl,
-        iconName,
-        bgColor,
-        keyPoints,
-        sourceUrl,
-        readTimeSeconds,
-        isPriority,
-        contentType,
-        contentGroup,
-        tags,
-        linkedArticleId,
-        linkedAiArticleId
-      } = req.body;
+      const updateData = { ...req.body };
 
-      const existingContent = await prisma.timeSaverContent.findUnique({
-        where: { id },
-        select: { id: true, title: true }
-      });
-
-      if (!existingContent) {
-        return res.status(404).json({
-          success: false,
-          message: 'Time saver content not found'
-        });
-      }
-
-      // Validate linked articles if provided
-      if (linkedArticleId !== undefined && linkedArticleId !== null) {
-        const article = await prisma.newsArticle.findUnique({
-          where: { id: linkedArticleId },
-          select: { id: true, status: true }
-        });
-        
-        if (!article) {
-          return res.status(400).json({
-            success: false,
-            message: 'Linked article not found'
-          });
-        }
-        
-        if (article.status !== 'PUBLISHED') {
-          return res.status(400).json({
-            success: false,
-            message: 'Can only link to published articles'
-          });
-        }
-      }
-
-      if (linkedAiArticleId !== undefined && linkedAiArticleId !== null) {
-        const aiArticle = await prisma.aiArticle.findUnique({
-          where: { id: linkedAiArticleId },
-          select: { id: true }
-        });
-        
-        if (!aiArticle) {
-          return res.status(400).json({
-            success: false,
-            message: 'Linked AI article not found'
-          });
-        }
-      }
-
-      const updateData = {};
-      if (title !== undefined) updateData.title = title;
-      if (summary !== undefined) updateData.summary = summary;
-      if (category !== undefined) updateData.category = category;
-      if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
-      if (iconName !== undefined) updateData.iconName = iconName;
-      if (bgColor !== undefined) updateData.bgColor = bgColor;
-      if (keyPoints !== undefined) {
-        updateData.keyPoints = Array.isArray(keyPoints) ? keyPoints.join('|') : keyPoints;
-      }
-      if (sourceUrl !== undefined) updateData.sourceUrl = sourceUrl;
-      if (readTimeSeconds !== undefined) updateData.readTimeSeconds = parseInt(readTimeSeconds);
-      if (isPriority !== undefined) updateData.isPriority = isPriority;
-      if (contentType !== undefined) updateData.contentType = contentType;
-      if (contentGroup !== undefined) updateData.contentGroup = contentGroup;
-      if (linkedArticleId !== undefined) updateData.linkedArticleId = linkedArticleId;
-      if (linkedAiArticleId !== undefined) updateData.linkedAiArticleId = linkedAiArticleId;
+      // Remove fields that shouldn't be updated directly
+      delete updateData.id;
+      delete updateData.createdAt;
+      delete updateData.createdBy;
+      delete updateData.publishedAt;
+      delete updateData.viewCount;
       
-      if (tags !== undefined) {
-        let processedTags = [];
-        if (typeof tags === 'string') {
-          processedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-        } else if (Array.isArray(tags)) {
-          processedTags = tags.filter(tag => typeof tag === 'string' && tag.trim().length > 0);
+      // Add updatedBy
+      updateData.updatedBy = req.user?.userId;
+
+      // Validate contentType if provided
+      if (updateData.contentType) {
+        const validContentTypes = ['DIGEST', 'QUICK_UPDATE', 'BRIEFING', 'SUMMARY', 'HIGHLIGHTS'];
+        if (!validContentTypes.includes(updateData.contentType)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid contentType'
+          });
         }
-        updateData.tags = processedTags.join(',');
       }
-      
-      updateData.updatedAt = new Date();
-      updateData.updatedBy = req.user.id;
 
       const content = await prisma.timeSaverContent.update({
         where: { id },
@@ -798,307 +771,82 @@ class TimeSaverController {
             select: {
               id: true,
               headline: true,
-              slug: true,
-              category: true
+              slug: true
             }
           },
           linkedAiArticle: {
             select: {
               id: true,
-              headline: true,
-              category: true
+              headline: true
             }
           }
         }
       });
 
-      logger.info(`Time saver content updated: ${id} by ${req.user.email} (${req.user.role})`);
+      logger.info(`Time saver content updated: ${id} by user ${req.user?.userId}`);
 
       res.json({
         success: true,
         message: 'Time saver content updated successfully',
-        data: { content }
+        data: content
       });
     } catch (error) {
-      logger.error('Update time saver content error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to update time saver content'
-      });
-    }
-  }
-
-  // @desc    Delete time saver content
-  static async deleteContent(req, res) {
-    try {
-      const { id } = req.params;
-
-      const existingContent = await prisma.timeSaverContent.findUnique({
-        where: { id },
-        select: { id: true, title: true }
-      });
-
-      if (!existingContent) {
+      if (error.code === 'P2025') {
         return res.status(404).json({
           success: false,
           message: 'Time saver content not found'
         });
       }
+      logger.error('Error updating time saver content:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update time saver content',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * @desc    Delete time saver content
+   * @route   DELETE /api/time-saver/content/:id
+   * @access  Private (EDITOR, AD_MANAGER)
+   */
+  static async deleteContent(req, res) {
+    try {
+      const { id } = req.params;
 
       await prisma.timeSaverContent.delete({
         where: { id }
       });
 
-      logger.info(`Time saver content deleted: ${id} by ${req.user.email} (${req.user.role})`);
+      logger.info(`Time saver content deleted: ${id} by user ${req.user?.userId}`);
 
       res.json({
         success: true,
         message: 'Time saver content deleted successfully'
       });
     } catch (error) {
-      logger.error('Delete time saver content error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to delete time saver content'
-      });
-    }
-  }
-
-  // @desc    Track time saver content view
-  static async trackView(req, res) {
-    try {
-      const { id } = req.params;
-      const { timestamp = new Date() } = req.body;
-
-      if (!id || id.length < 10) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid content ID'
-        });
-      }
-
-      const content = await prisma.timeSaverContent.findUnique({
-        where: { id },
-        select: { id: true, viewCount: true }
-      });
-
-      if (!content) {
-        return res.status(404).json({
-          success: false,
-          message: 'Content not found'
-        });
-      }
-
-      await prisma.timeSaverContent.update({
-        where: { id },
-        data: { 
-          viewCount: { 
-            increment: 1 
-          }
-        }
-      });
-
-      if (req.user) {
-        try {
-          await prisma.timeSaverView.create({
-            data: {
-              contentId: id,
-              userId: req.user.id,
-              timestamp: new Date(timestamp)
-            }
-          });
-        } catch (viewError) {
-          console.warn('Failed to create user view record:', viewError.message);
-        }
-      }
-
-      res.json({
-        success: true,
-        message: 'View tracked successfully',
-        data: {
-          viewCount: content.viewCount + 1
-        }
-      });
-
-    } catch (error) {
-      console.error('Track time saver content view error:', error);
-      
       if (error.code === 'P2025') {
         return res.status(404).json({
           success: false,
-          message: 'Content not found'
+          message: 'Time saver content not found'
         });
       }
-      
-      if (error.code === 'P2002') {
-        return res.status(400).json({
-          success: false,
-          message: 'View already recorded'
-        });
-      }
-
+      logger.error('Error deleting time saver content:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to track view'
+        message: 'Failed to delete time saver content',
+        error: error.message
       });
     }
   }
 
-  // @desc    Track time saver content interaction
-  static async trackInteraction(req, res) {
-    try {
-      const { id } = req.params;
-      const { interactionType, timestamp = new Date() } = req.body;
-
-      if (!id || id.length < 10) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid content ID'
-        });
-      }
-
-      const validTypes = ['SHARE', 'BOOKMARK', 'LIKE', 'SAVE_FOR_LATER', 'MARK_AS_READ'];
-      if (!validTypes.includes(interactionType)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid interaction type'
-        });
-      }
-
-      const content = await prisma.timeSaverContent.findUnique({
-        where: { id },
-        select: { id: true }
-      });
-
-      if (!content) {
-        return res.status(404).json({
-          success: false,
-          message: 'Content not found'
-        });
-      }
-
-      try {
-        await prisma.timeSaverInteraction.create({
-          data: {
-            contentId: id,
-            userId: req.user?.id || null,
-            interactionType,
-            timestamp: new Date(timestamp)
-          }
-        });
-      } catch (interactionError) {
-        console.warn('Failed to create interaction record:', interactionError.message);
-      }
-
-      res.json({
-        success: true,
-        message: 'Interaction tracked successfully'
-      });
-
-    } catch (error) {
-      console.error('Track time saver content interaction error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to track interaction'
-      });
-    }
-  }
-
-  // @desc    Get analytics
-  static async getAnalytics(req, res) {
-    try {
-      const { timeframe = '30d' } = req.query;
-
-      const timeframes = {
-        '7d': 7,
-        '30d': 30,
-        '90d': 90
-      };
-
-      const days = timeframes[timeframe] || 30;
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - days);
-
-      const [
-        totalContent,
-        totalViews,
-        topPerforming,
-        linkedStats
-      ] = await Promise.all([
-        prisma.timeSaverContent.count({
-          where: { publishedAt: { gte: fromDate } }
-        }),
-
-        prisma.timeSaverContent.aggregate({
-          where: { publishedAt: { gte: fromDate } },
-          _sum: { viewCount: true }
-        }),
-
-        prisma.timeSaverContent.findMany({
-          where: { publishedAt: { gte: fromDate } },
-          take: 10,
-          orderBy: { viewCount: 'desc' },
-          select: {
-            id: true,
-            title: true,
-            category: true,
-            viewCount: true,
-            contentType: true,
-            publishedAt: true,
-            linkedArticleId: true,
-            linkedAiArticleId: true
-          }
-        }),
-
-        // Get linked article statistics
-        prisma.timeSaverContent.groupBy({
-          by: ['linkedArticleId'],
-          where: {
-            publishedAt: { gte: fromDate },
-            linkedArticleId: { not: null }
-          },
-          _count: { id: true }
-        })
-      ]);
-
-      const analytics = {
-        overview: {
-          totalContent,
-          totalViews: totalViews._sum.viewCount || 0,
-          totalInteractions: 0,
-          averageReadTime: 95,
-          linkedArticles: linkedStats.length,
-          withLinksPercentage: totalContent > 0 
-            ? Math.round((linkedStats.length / totalContent) * 100)
-            : 0
-        },
-        topPerforming,
-        contentByType: [],
-        linkedArticlesBreakdown: linkedStats.map(stat => ({
-          articleId: stat.linkedArticleId,
-          timeSaverCount: stat._count.id
-        })),
-        timeframe: {
-          period: timeframe,
-          fromDate,
-          toDate: new Date()
-        }
-      };
-
-      res.json({
-        success: true,
-        data: { analytics }
-      });
-    } catch (error) {
-      logger.error('Get time saver analytics error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch analytics'
-      });
-    }
-  }
-
-  // @desc    Link existing TimeSaver content to an article
+  /**
+   * @desc    Link existing TimeSaver content to an article
+   * @route   POST /api/time-saver/content/:id/link
+   * @access  Private (EDITOR, AD_MANAGER)
+   * @body    { articleId: string, articleType: 'news'|'ai' }
+   */
   static async linkToArticle(req, res) {
     try {
       const { id } = req.params;
@@ -1107,179 +855,405 @@ class TimeSaverController {
       if (!articleId) {
         return res.status(400).json({
           success: false,
-          message: 'Article ID is required'
+          message: 'articleId is required'
         });
       }
 
-      // Check if content exists
-      const content = await prisma.timeSaverContent.findUnique({
-        where: { id },
-        select: { id: true, title: true }
-      });
-
-      if (!content) {
-        return res.status(404).json({
+      // Validate article type
+      if (!['news', 'ai'].includes(articleType)) {
+        return res.status(400).json({
           success: false,
-          message: 'TimeSaver content not found'
+          message: 'articleType must be either "news" or "ai"'
         });
       }
 
-      // Validate article exists
-      if (articleType === 'ai') {
-        const aiArticle = await prisma.aiArticle.findUnique({
-          where: { id: articleId },
-          select: { id: true, headline: true }
+      // Verify article exists
+      if (articleType === 'news') {
+        const article = await prisma.newsArticle.findUnique({
+          where: { id: articleId }
         });
-
+        if (!article) {
+          return res.status(404).json({
+            success: false,
+            message: 'News article not found'
+          });
+        }
+      } else {
+        const aiArticle = await prisma.aiArticle.findUnique({
+          where: { id: articleId }
+        });
         if (!aiArticle) {
           return res.status(404).json({
             success: false,
             message: 'AI article not found'
           });
         }
-
-        await prisma.timeSaverContent.update({
-          where: { id },
-          data: {
-            linkedAiArticleId: articleId,
-            updatedBy: req.user.id
-          }
-        });
-
-        logger.info(`TimeSaver ${id} linked to AI article ${articleId} by ${req.user.email}`);
-      } else {
-        const article = await prisma.newsArticle.findUnique({
-          where: { id: articleId },
-          select: { id: true, headline: true, status: true }
-        });
-
-        if (!article) {
-          return res.status(404).json({
-            success: false,
-            message: 'Article not found'
-          });
-        }
-
-        if (article.status !== 'PUBLISHED') {
-          return res.status(400).json({
-            success: false,
-            message: 'Can only link to published articles'
-          });
-        }
-
-        await prisma.timeSaverContent.update({
-          where: { id },
-          data: {
-            linkedArticleId: articleId,
-            updatedBy: req.user.id
-          }
-        });
-
-        logger.info(`TimeSaver ${id} linked to article ${articleId} by ${req.user.email}`);
       }
+
+      // Update TimeSaver content
+      const updateData = {};
+      if (articleType === 'news') {
+        updateData.linkedArticleId = articleId;
+      } else {
+        updateData.linkedAiArticleId = articleId;
+      }
+      updateData.updatedBy = req.user?.userId;
+
+      const content = await prisma.timeSaverContent.update({
+        where: { id },
+        data: updateData,
+        include: {
+          linkedArticle: {
+            select: {
+              id: true,
+              headline: true,
+              slug: true
+            }
+          },
+          linkedAiArticle: {
+            select: {
+              id: true,
+              headline: true
+            }
+          }
+        }
+      });
+
+      logger.info(`Article linked to TimeSaver: ${id} -> ${articleId} (${articleType})`);
 
       res.json({
         success: true,
-        message: 'Successfully linked to article'
+        message: `${articleType === 'news' ? 'Article' : 'AI article'} linked successfully`,
+        data: content
       });
     } catch (error) {
-      logger.error('Link to article error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to link to article'
-      });
-    }
-  }
-
-  // @desc    Unlink TimeSaver content from article
-  static async unlinkFromArticle(req, res) {
-    try {
-      const { id } = req.params;
-      const { articleType = 'news' } = req.body;
-
-      const content = await prisma.timeSaverContent.findUnique({
-        where: { id },
-        select: { id: true }
-      });
-
-      if (!content) {
+      if (error.code === 'P2025') {
         return res.status(404).json({
           success: false,
           message: 'TimeSaver content not found'
         });
       }
-
-      const updateData = { updatedBy: req.user.id };
-      
-      if (articleType === 'ai') {
-        updateData.linkedAiArticleId = null;
-      } else {
-        updateData.linkedArticleId = null;
-      }
-
-      await prisma.timeSaverContent.update({
-        where: { id },
-        data: updateData
-      });
-
-      logger.info(`TimeSaver ${id} unlinked from ${articleType} article by ${req.user.email}`);
-
-      res.json({
-        success: true,
-        message: 'Successfully unlinked from article'
-      });
-    } catch (error) {
-      logger.error('Unlink from article error:', error);
+      logger.error('Error linking article:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to unlink from article'
+        message: 'Failed to link article',
+        error: error.message
       });
     }
   }
 
-  // @desc    Bulk create sample content for testing categories
+  /**
+   * @desc    Unlink TimeSaver content from article
+   * @route   POST /api/time-saver/content/:id/unlink
+   * @access  Private (EDITOR, AD_MANAGER)
+   * @body    { articleType: 'news'|'ai' }
+   */
+  static async unlinkFromArticle(req, res) {
+    try {
+      const { id } = req.params;
+      const { articleType = 'news' } = req.body;
+
+      // Validate article type
+      if (!['news', 'ai'].includes(articleType)) {
+        return res.status(400).json({
+          success: false,
+          message: 'articleType must be either "news" or "ai"'
+        });
+      }
+
+      // Update TimeSaver content
+      const updateData = {};
+      if (articleType === 'news') {
+        updateData.linkedArticleId = null;
+      } else {
+        updateData.linkedAiArticleId = null;
+      }
+      updateData.updatedBy = req.user?.userId;
+
+      const content = await prisma.timeSaverContent.update({
+        where: { id },
+        data: updateData
+      });
+
+      logger.info(`Article unlinked from TimeSaver: ${id} (${articleType})`);
+
+      res.json({
+        success: true,
+        message: `${articleType === 'news' ? 'Article' : 'AI article'} unlinked successfully`,
+        data: content
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({
+          success: false,
+          message: 'TimeSaver content not found'
+        });
+      }
+      logger.error('Error unlinking article:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to unlink article',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * @desc    Bulk create sample content for testing categories
+   * @route   POST /api/time-saver/seed-sample-data
+   * @access  Private (EDITOR, AD_MANAGER)
+   */
   static async seedSampleData(req, res) {
     try {
-      const sampleContent = [
-        {
-          title: "Breaking: Major Tech Breakthrough Announced",
-          summary: "Revolutionary AI advancement changes industry landscape",
-          category: "TECHNOLOGY",
-          contentType: "DIGEST",
-          isPriority: true,
-          readTimeSeconds: 120,
-          keyPoints: "AI breakthrough|Industry impact|Future implications",
-          tags: "tech,ai,breakthrough,today",
-          contentGroup: "today_new",
-          publishedAt: new Date(),
-          createdBy: req.user.id
-        }
-      ];
+      const { count = 10 } = req.body;
+      const userId = req.user?.userId;
 
-      const createdContent = await Promise.all(
-        sampleContent.map(item => 
-          prisma.timeSaverContent.create({
-            data: {
-              ...item,
-              viewCount: Math.floor(Math.random() * 500) + 100
-            }
-          })
-        )
-      );
+      // Get active categories from database
+      const categories = await prisma.category.findMany({
+        where: { isActive: true },
+        select: { name: true, displayName: true }
+      });
 
-      logger.info(`Sample data seeded: ${createdContent.length} items by ${req.user.email} (${req.user.role})`);
+      if (categories.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No active categories found. Please create categories first.'
+        });
+      }
+
+      const contentTypes = ['DIGEST', 'QUICK_UPDATE', 'BRIEFING', 'SUMMARY', 'HIGHLIGHTS'];
+      const contentGroups = ['today_new', 'breaking_critical', 'weekly_highlights', 'monthly_top', 'brief_updates'];
+
+      const sampleData = [];
+      for (let i = 0; i < count; i++) {
+        const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+        const randomType = contentTypes[Math.floor(Math.random() * contentTypes.length)];
+        const randomGroup = contentGroups[Math.floor(Math.random() * contentGroups.length)];
+        
+        sampleData.push({
+          title: `Sample ${randomCategory.displayName} Content ${i + 1}`,
+          summary: `This is a sample summary for ${randomCategory.displayName} content. It contains interesting information about the topic.`,
+          category: randomCategory.name,
+          imageUrl: `https://source.unsplash.com/800x600/?${randomCategory.name.toLowerCase()}`,
+          keyPoints: `• Key point 1 about ${randomCategory.displayName}\n• Key point 2 with important details\n• Key point 3 highlighting main takeaways`,
+          sourceUrl: `https://example.com/${randomCategory.name.toLowerCase()}`,
+          readTimeSeconds: Math.floor(Math.random() * 180) + 60,
+          isPriority: Math.random() > 0.7,
+          contentType: randomType,
+          contentGroup: randomGroup,
+          tags: `${randomCategory.name}, sample, test`,
+          publishedAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
+          createdBy: userId
+        });
+      }
+
+      const created = await prisma.timeSaverContent.createMany({
+        data: sampleData
+      });
+
+      logger.info(`Sample data seeded: ${created.count} items by user ${userId}`);
 
       res.status(201).json({
         success: true,
-        message: `Successfully created ${createdContent.length} sample content items`,
-        data: { count: createdContent.length }
+        message: `Successfully created ${created.count} sample TimeSaver items`,
+        data: { count: created.count }
       });
-
     } catch (error) {
-      logger.error('Seed sample data error:', error);
+      logger.error('Error seeding sample data:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to seed sample data'
+        message: 'Failed to seed sample data',
+        error: error.message
+      });
+    }
+  }
+
+  // ==================== ANALYTICS ROUTES (AD_MANAGER, ADMIN) ====================
+
+  /**
+   * @desc    Get analytics
+   * @route   GET /api/time-saver/analytics
+   * @access  Private (AD_MANAGER, ADMIN)
+   */
+  static async getAnalytics(req, res) {
+    try {
+      const {
+        startDate,
+        endDate,
+        category,
+        contentType
+      } = req.query;
+
+      // Build date range filter
+      const dateFilter = {};
+      if (startDate) {
+        dateFilter.gte = new Date(startDate);
+      }
+      if (endDate) {
+        dateFilter.lte = new Date(endDate);
+      }
+
+      const where = {};
+      if (Object.keys(dateFilter).length > 0) {
+        where.publishedAt = dateFilter;
+      }
+      if (category) {
+        where.category = category;
+      }
+      if (contentType) {
+        where.contentType = contentType;
+      }
+
+      // Get comprehensive analytics
+      const [
+        totalContent,
+        totalViews,
+        totalInteractions,
+        avgViewsPerContent,
+        categoryPerformance,
+        contentTypePerformance,
+        topContent,
+        recentActivity,
+        dailyStats
+      ] = await Promise.all([
+        // Total content
+        prisma.timeSaverContent.count({ where }),
+        
+        // Total views
+        prisma.timeSaverView.count({
+          where: {
+            content: where
+          }
+        }),
+        
+        // Total interactions
+        prisma.timeSaverInteraction.count({
+          where: {
+            content: where
+          }
+        }),
+        
+        // Average views per content
+        prisma.timeSaverContent.aggregate({
+          where,
+          _avg: { viewCount: true }
+        }),
+        
+        // Performance by category
+        prisma.timeSaverContent.groupBy({
+          by: ['category'],
+          where,
+          _count: { id: true },
+          _sum: { viewCount: true },
+          _avg: { viewCount: true },
+          orderBy: { _sum: { viewCount: 'desc' } }
+        }),
+        
+        // Performance by content type
+        prisma.timeSaverContent.groupBy({
+          by: ['contentType'],
+          where,
+          _count: { id: true },
+          _sum: { viewCount: true },
+          _avg: { viewCount: true }
+        }),
+        
+        // Top performing content
+        prisma.timeSaverContent.findMany({
+          where,
+          take: 10,
+          orderBy: { viewCount: 'desc' },
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            contentType: true,
+            viewCount: true,
+            publishedAt: true,
+            isPriority: true
+          }
+        }),
+        
+        // Recent activity (last 50 views)
+        prisma.timeSaverView.findMany({
+          take: 50,
+          orderBy: { timestamp: 'desc' },
+          include: {
+            content: {
+              select: {
+                id: true,
+                title: true,
+                category: true
+              }
+            },
+            user: {
+              select: {
+                id: true,
+                fullName: true
+              }
+            }
+          }
+        }),
+        
+        // Daily stats for the period
+        prisma.$queryRaw`
+          SELECT 
+            DATE(published_at) as date,
+            COUNT(*) as content_count,
+            SUM(view_count) as total_views
+          FROM time_saver_content
+          WHERE published_at >= ${dateFilter.gte || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)}
+          AND published_at <= ${dateFilter.lte || new Date()}
+          GROUP BY DATE(published_at)
+          ORDER BY date DESC
+        `
+      ]);
+
+      // Get interaction breakdown
+      const interactionBreakdown = await prisma.timeSaverInteraction.groupBy({
+        by: ['interactionType'],
+        where: {
+          content: where
+        },
+        _count: { id: true }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          overview: {
+            totalContent,
+            totalViews,
+            totalInteractions,
+            avgViewsPerContent: avgViewsPerContent._avg.viewCount || 0
+          },
+          categoryPerformance: categoryPerformance.map(cat => ({
+            category: cat.category,
+            contentCount: cat._count.id,
+            totalViews: cat._sum.viewCount || 0,
+            avgViews: cat._avg.viewCount || 0
+          })),
+          contentTypePerformance: contentTypePerformance.map(type => ({
+            type: type.contentType,
+            contentCount: type._count.id,
+            totalViews: type._sum.viewCount || 0,
+            avgViews: type._avg.viewCount || 0
+          })),
+          interactionBreakdown: interactionBreakdown.map(int => ({
+            type: int.interactionType,
+            count: int._count.id
+          })),
+          topContent,
+          recentActivity,
+          dailyStats
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching analytics:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch analytics',
+        error: error.message
       });
     }
   }
