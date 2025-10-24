@@ -1,4 +1,4 @@
-// schema.prisma - UPDATED WITH DYNAMIC CATEGORIES
+// schema.prisma - UPDATED WITH TIMESAVER ARTICLE LINKING
 
 generator client {
   provider = "prisma-client-js"
@@ -107,6 +107,7 @@ model NewsArticle {
   approvalHistory ApprovalHistory[]
   readingHistory  ReadingHistory[]
   timeSaverReferences TimeSaverContent[] @relation("ArticleToTimeSaver")
+  timeSavers      TimeSaverContent[] @relation("ArticleTimeSavers")  // ⭐ NEW: Direct relation
 
   @@index([category])
   @@index([status])
@@ -167,6 +168,7 @@ model AiArticle {
   interactions   AiArticleInteraction[]
   creator        User?    @relation("AiArticleCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   timeSaverReferences TimeSaverContent[] @relation("AiArticleToTimeSaver")
+  timeSavers     TimeSaverContent[] @relation("AiArticleTimeSavers")  // ⭐ NEW: Direct relation
 
   @@index([category])
   @@index([isTrending])
@@ -235,39 +237,30 @@ model TimeSaverContent {
   updatedAt      DateTime          @updatedAt @map("updated_at")
   contentGroup   String?           @map("content_group")
   tags           String?           @db.Text
-  linkedArticleId String?         @map("linked_article_id")
-  linkedAiArticleId String?       @map("linked_ai_article_id")
-  createdBy      String?          @map("created_by")
-  updatedBy      String?          @map("updated_by")
+  createdBy      String?           @map("created_by")
+  
+  // ⭐ NEW: Linking fields for articles
+  linkedArticleId   String?  @map("linked_article_id")
+  linkedAiArticleId String?  @map("linked_ai_article_id")
 
+  // Relations
+  creator        User?     @relation("TimeSaverCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   views          TimeSaverView[]
   interactions   TimeSaverInteraction[]
-  linkedArticle  NewsArticle?     @relation("ArticleToTimeSaver", fields: [linkedArticleId], references: [id], onDelete: SetNull)
-  linkedAiArticle AiArticle?      @relation("AiArticleToTimeSaver", fields: [linkedAiArticleId], references: [id], onDelete: SetNull)
-  creator        User?            @relation("TimeSaverCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  articleRefs    NewsArticle[] @relation("ArticleToTimeSaver")
+  aiArticleRefs  AiArticle[]   @relation("AiArticleToTimeSaver")
+  
+  // ⭐ NEW: Direct relations to linked articles
+  linkedArticle     NewsArticle? @relation("ArticleTimeSavers", fields: [linkedArticleId], references: [id], onDelete: SetNull)
+  linkedAiArticle   AiArticle?   @relation("AiArticleTimeSavers", fields: [linkedAiArticleId], references: [id], onDelete: SetNull)
 
-  @@index([linkedArticleId])
-  @@index([linkedAiArticleId])
   @@index([category])
+  @@index([isPriority])
   @@index([publishedAt])
+  @@index([contentType])
+  @@index([linkedArticleId])      // ⭐ NEW: Index for article linking
+  @@index([linkedAiArticleId])    // ⭐ NEW: Index for AI article linking
   @@map("time_saver_content")
-}
-
-model QuickUpdate {
-  id              String   @id @default(cuid())
-  title           String   @db.VarChar(500)
-  brief           String?  @db.Text
-  category        String
-  imageUrl        String?  @map("image_url")
-  tags            String?  @db.Text
-  isHot           Boolean  @default(false) @map("is_hot")
-  engagementScore Int      @default(0) @map("engagement_score")
-  timestamp       DateTime @default(now())
-  contentGroup    String?  @map("content_group")
-
-  @@index([category])
-  @@index([timestamp])
-  @@map("quick_updates")
 }
 
 model BreakingNews {
@@ -488,6 +481,11 @@ enum TimeSaverContentType {
   BRIEFING
   SUMMARY
   HIGHLIGHTS
+  ARTICLE        // ⭐ NEW: For article-based TimeSavers
+  AI_ML          // ⭐ NEW: For AI/ML article TimeSavers
+  VIDEO
+  PODCAST
+  INFOGRAPHIC
 }
 
 enum TimeSaverInteractionType {

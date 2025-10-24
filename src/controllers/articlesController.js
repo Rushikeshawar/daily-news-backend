@@ -377,32 +377,240 @@ const articlesController = {
 
   // Create new article - FIXED FOR DYNAMIC CATEGORIES
   createArticle: async (req, res) => {
-    try {
-      const {
+  try {
+    const {
+      headline,
+      briefContent,
+      fullContent,
+      category,
+      tags,
+      priorityLevel = 0,
+      featuredImage,
+      metaTitle,
+      metaDescription,
+      scheduledAt,
+      // TimeSaver fields (optional)
+      createTimeSaver = true, // Auto-create by default
+      timeSaverTitle,
+      timeSaverSummary,
+      timeSaverKeyPoints,
+      timeSaverContentType = 'ARTICLE',
+      timeSaverIconName,
+      timeSaverBgColor,
+      timeSaverIsPriority = false
+    } = req.body;
+
+    // Validate required fields
+    if (!headline || !briefContent || !fullContent || !category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: headline, briefContent, fullContent, and category are required'
+      });
+    }
+
+    const upperCategory = category.toUpperCase();
+
+    // Validate category exists and is active
+    const categoryRecord = await validateCategory(upperCategory);
+    if (!categoryRecord) {
+      const availableCategories = await prisma.category.findMany({
+        where: { isActive: true },
+        select: { name: true, displayName: true }
+      });
+      
+      return res.status(400).json({
+        success: false,
+        message: `Category "${category}" does not exist or is inactive.`,
+        hint: 'Please use one of the available categories or create a new one first.',
+        availableCategories
+      });
+    }
+
+    let slug = generateSlug(headline);
+    
+    const existingSlug = await prisma.newsArticle.findUnique({
+      where: { slug }
+    });
+
+    if (existingSlug) {
+      slug = `${slug}-${Date.now()}`;
+    }
+
+    // Determine status based on role
+    let status = 'DRAFT';
+    let publishedAt = null;
+    
+    if (req.user.role === 'AD_MANAGER' || req.user.role === 'ADMIN') {
+      status = 'PUBLISHED';
+      publishedAt = scheduledAt ? new Date(scheduledAt) : new Date();
+    } else {
+      status = 'PENDING';
+    }
+
+    const article = await prisma.newsArticle.create({
+      data: {
         headline,
         briefContent,
         fullContent,
-        category,
+        category: upperCategory,
         tags,
-        priorityLevel = 0,
+        priorityLevel,
         featuredImage,
-        metaTitle,
+        metaTitle: metaTitle || headline,
         metaDescription,
-        scheduledAt
-      } = req.body;
-
-      // Validate required fields
-      if (!headline || !briefContent || !fullContent || !category) {
-        return res.status(400).json({
-          success: false,
-          message: 'Missing required fields: headline, briefContent, fullContent, and category are required'
-        });
+        slug,
+        status,
+        authorId: req.user.id,
+        approvedBy: (req.user.role === 'AD_MANAGER' || req.user.role === 'ADMIN') ? req.user.id : null,
+        scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+        publishedAt
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true
+          }
+        }
       }
+    });
 
+    // Automatically create TimeSaver content if enabled
+    let timeSaver = null;
+    if (createTimeSaver && (status === 'PUBLISHED' || status === 'APPROVED')) {
+      try {
+        // Extract key points from tags or briefContent
+        let keyPointsArray = [];
+        if (timeSaverKeyPoints) {
+          keyPointsArray = Array.isArray(timeSaverKeyPoints) 
+            ? timeSaverKeyPoints 
+            : timeSaverKeyPoints.split(',').map(point => point.trim());
+        } else if (tags) {
+          keyPointsArray = tags.split(',').slice(0, 3).map(tag => tag.trim());
+        }
+
+        timeSaver = await prisma.timeSaverContent.create({
+          data: {
+            title: timeSaverTitle || headline,
+            summary: timeSaverSummary || briefContent.substring(0, 300),
+            category: upperCategory,
+            imageUrl: featuredImage,
+            iconName: timeSaverIconName || 'Newspaper',
+            bgColor: timeSaverBgColor || '#3B82F6',
+            keyPoints: keyPointsArray.length > 0 ? keyPointsArray.join(',') : null,
+            contentType: timeSaverContentType,
+            isPriority: timeSaverIsPriority,
+            linkedArticleId: article.id, // IMPORTANT: Link to the article
+            publishedAt: publishedAt,
+            createdBy: req.user.id
+          }
+        });
+
+        logger.info(`TimeSaver created automatically for article: ${article.headline}`);
+      } catch (timeSaverError) {
+        logger.error('Failed to create TimeSaver for article:', timeSaverError);
+        // Continue even if TimeSaver creation fails
+      }
+    }
+
+    // Add category display name
+    const categoryDisplayName = await getCategoryDisplayName(article.category);
+
+    logger.info(`Article created: ${article.headline} by ${req.user.email} with status ${status}, category: ${article.category}`);
+
+    res.status(201).json({
+      success: true,
+      message: timeSaver 
+        ? 'Article and TimeSaver created successfully' 
+        : 'Article created successfully',
+      data: { 
+        article: {
+          ...article,
+          categoryDisplayName
+        },
+        timeSaver: timeSaver ? {
+          id: timeSaver.id,
+          title: timeSaver.title,
+          linkedArticleId: timeSaver.linkedArticleId
+        } : null
+      }
+    });
+  } catch (error) {
+    logger.error('Create article error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create article',
+      error: error.message
+    });
+  }
+},
+
+  // Update article - FIXED FOR DYNAMIC CATEGORIES
+  updateArticle: async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      headline,
+      briefContent,
+      fullContent,
+      category,
+      priorityLevel,
+      tags,
+      featuredImage,
+      metaTitle,
+      metaDescription,
+      scheduledAt,
+      
+      // ⭐ Extract TimeSaver fields (don't pass to Prisma)
+      createTimeSaver,
+      timeSaverTitle,
+      timeSaverSummary,
+      timeSaverKeyPoints,
+      timeSaverContentType,
+      timeSaverIconName,
+      timeSaverBgColor,
+      timeSaverIsPriority
+    } = req.body;
+
+    console.log('ArticleController: Updating article:', id);
+    console.log('ArticleController: Update data received:', req.body);
+
+    // Check if article exists
+    const existingArticle = await prisma.newsArticle.findUnique({
+      where: { id },
+      select: { 
+        id: true, 
+        authorId: true, 
+        status: true,
+        category: true
+      }
+    });
+
+    if (!existingArticle) {
+      return res.status(404).json({
+        success: false,
+        message: 'Article not found'
+      });
+    }
+
+    // Check permissions
+    const canEdit = req.user.role === 'ADMIN' 
+      || req.user.role === 'AD_MANAGER' 
+      || req.user.id === existingArticle.authorId;
+
+    if (!canEdit) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // Validate category if provided
+    if (category) {
       const upperCategory = category.toUpperCase();
-
-      // Validate category exists and is active
       const categoryRecord = await validateCategory(upperCategory);
+      
       if (!categoryRecord) {
         const availableCategories = await prisma.category.findMany({
           where: { isActive: true },
@@ -412,218 +620,136 @@ const articlesController = {
         return res.status(400).json({
           success: false,
           message: `Category "${category}" does not exist or is inactive.`,
-          hint: 'Please use one of the available categories or create a new one first.',
           availableCategories
         });
       }
+    }
 
-      let slug = generateSlug(headline);
-      
-      const existingSlug = await prisma.newsArticle.findUnique({
-        where: { slug }
-      });
+    // ⭐ Build update data - ONLY fields that exist in NewsArticle model
+    const updateData = {};
+    
+    if (headline !== undefined) updateData.headline = headline;
+    if (briefContent !== undefined) updateData.briefContent = briefContent;
+    if (fullContent !== undefined) updateData.fullContent = fullContent;
+    if (category !== undefined) updateData.category = category.toUpperCase();
+    if (priorityLevel !== undefined) updateData.priorityLevel = parseInt(priorityLevel);
+    if (tags !== undefined) updateData.tags = tags;
+    if (featuredImage !== undefined) updateData.featuredImage = featuredImage;
+    if (metaTitle !== undefined) updateData.metaTitle = metaTitle;
+    if (metaDescription !== undefined) updateData.metaDescription = metaDescription;
+    if (scheduledAt !== undefined) updateData.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
 
-      if (existingSlug) {
-        slug = `${slug}-${Date.now()}`;
-      }
+    // Auto-generate metaTitle if not provided
+    if (!updateData.metaTitle && updateData.headline) {
+      updateData.metaTitle = updateData.headline;
+    }
 
-      // Determine status based on role
-      let status = 'DRAFT';
-      let publishedAt = null;
-      
-      if (req.user.role === 'AD_MANAGER' || req.user.role === 'ADMIN') {
-        status = 'PUBLISHED';
-        publishedAt = scheduledAt ? new Date(scheduledAt) : new Date();
-      } else {
-        status = 'PENDING';
-      }
+    console.log('ArticleController: Final update data for Prisma:', updateData);
 
-      const article = await prisma.newsArticle.create({
-        data: {
-          headline,
-          briefContent,
-          fullContent,
-          category: upperCategory,
-          tags,
-          priorityLevel,
-          featuredImage,
-          metaTitle: metaTitle || headline,
-          metaDescription,
-          slug,
-          status,
-          authorId: req.user.id,
-          approvedBy: (req.user.role === 'AD_MANAGER' || req.user.role === 'ADMIN') ? req.user.id : null,
-          scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-          publishedAt
+    // Update the article
+    const article = await prisma.newsArticle.update({
+      where: { id },
+      data: updateData,
+      include: {
+        author: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true
+          }
         },
-        include: {
-          author: {
-            select: {
-              id: true,
-              fullName: true,
-              avatar: true
-            }
+        approver: {
+          select: {
+            id: true,
+            fullName: true
           }
         }
-      });
-
-      // Add category display name
-      const categoryDisplayName = await getCategoryDisplayName(article.category);
-
-      logger.info(`Article created: ${article.headline} by ${req.user.email} with status ${status}, category: ${article.category}`);
-
-      res.status(201).json({
-        success: true,
-        message: 'Article created successfully',
-        data: { 
-          article: {
-            ...article,
-            categoryDisplayName
-          }
-        }
-      });
-    } catch (error) {
-      logger.error('Create article error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to create article',
-        error: error.message
-      });
-    }
-  },
-
-  // Update article - FIXED FOR DYNAMIC CATEGORIES
-  updateArticle: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updateData = { ...req.body };
-
-      const existingArticle = await prisma.newsArticle.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          authorId: true,
-          status: true,
-          headline: true,
-          category: true
-        }
-      });
-
-      if (!existingArticle) {
-        return res.status(404).json({
-          success: false,
-          message: 'Article not found'
-        });
       }
+    });
 
-      const canEdit = req.user.role === 'ADMIN'
-        || req.user.role === 'AD_MANAGER'
-        || req.user.id === existingArticle.authorId;
-
-      if (!canEdit) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied'
+    // ⭐ Handle TimeSaver creation/update separately
+    let timeSaver = null;
+    if (createTimeSaver && (article.status === 'PUBLISHED' || article.status === 'APPROVED')) {
+      try {
+        // Check if TimeSaver already exists for this article
+        const existingTimeSaver = await prisma.timeSaverContent.findFirst({
+          where: { linkedArticleId: id }
         });
-      }
 
-      // Validate category if being updated
-      if (updateData.category) {
-        const upperCategory = updateData.category.toUpperCase();
-        const categoryRecord = await validateCategory(upperCategory);
-        
-        if (!categoryRecord) {
-          const availableCategories = await prisma.category.findMany({
-            where: { isActive: true },
-            select: { name: true, displayName: true }
+        // Prepare key points
+        let keyPointsArray = [];
+        if (timeSaverKeyPoints && Array.isArray(timeSaverKeyPoints) && timeSaverKeyPoints.length > 0) {
+          keyPointsArray = timeSaverKeyPoints;
+        } else if (tags) {
+          keyPointsArray = tags.split(',').slice(0, 3).map(tag => tag.trim());
+        }
+
+        const timeSaverData = {
+          title: timeSaverTitle || article.headline,
+          summary: timeSaverSummary || article.briefContent?.substring(0, 300) || '',
+          category: article.category,
+          imageUrl: article.featuredImage,
+          iconName: timeSaverIconName || 'Newspaper',
+          bgColor: timeSaverBgColor || '#3B82F6',
+          keyPoints: keyPointsArray.length > 0 ? keyPointsArray.join(',') : null,
+          contentType: timeSaverContentType || 'ARTICLE',
+          isPriority: timeSaverIsPriority || false,
+          linkedArticleId: article.id,
+          publishedAt: article.publishedAt || new Date(),
+          createdBy: req.user.id
+        };
+
+        if (existingTimeSaver) {
+          // Update existing TimeSaver
+          timeSaver = await prisma.timeSaverContent.update({
+            where: { id: existingTimeSaver.id },
+            data: timeSaverData
           });
-          
-          return res.status(400).json({
-            success: false,
-            message: `Category "${updateData.category}" does not exist or is inactive.`,
-            availableCategories
+          logger.info(`TimeSaver updated for article: ${article.headline}`);
+        } else {
+          // Create new TimeSaver
+          timeSaver = await prisma.timeSaverContent.create({
+            data: timeSaverData
           });
+          logger.info(`TimeSaver created for article: ${article.headline}`);
         }
-        
-        updateData.category = upperCategory;
+      } catch (timeSaverError) {
+        logger.error('Failed to create/update TimeSaver:', timeSaverError);
+        // Continue even if TimeSaver creation fails
       }
-
-      if (updateData.headline && updateData.headline !== existingArticle.headline) {
-        let newSlug = generateSlug(updateData.headline);
-        
-        const existingSlug = await prisma.newsArticle.findFirst({
-          where: {
-            slug: newSlug,
-            NOT: { id }
-          }
-        });
-
-        if (existingSlug) {
-          newSlug = `${newSlug}-${Date.now()}`;
-        }
-        
-        updateData.slug = newSlug;
-      }
-
-      if (updateData.status) {
-        if (updateData.status === 'PUBLISHED' && existingArticle.status !== 'PUBLISHED') {
-          updateData.publishedAt = new Date();
-        }
-        
-        if (['PUBLISHED', 'APPROVED'].includes(updateData.status) && 
-            !['AD_MANAGER', 'ADMIN'].includes(req.user.role)) {
-          delete updateData.status;
-        }
-      }
-
-      if (updateData.headline && !updateData.metaTitle) {
-        updateData.metaTitle = updateData.headline;
-      }
-
-      const article = await prisma.newsArticle.update({
-        where: { id },
-        data: updateData,
-        include: {
-          author: {
-            select: {
-              id: true,
-              fullName: true,
-              avatar: true
-            }
-          },
-          approver: {
-            select: {
-              id: true,
-              fullName: true
-            }
-          }
-        }
-      });
-
-      // Add category display name
-      const categoryDisplayName = await getCategoryDisplayName(article.category);
-
-      logger.info(`Article updated: ${article.headline} by ${req.user.email}, category: ${article.category}`);
-
-      res.json({
-        success: true,
-        message: 'Article updated successfully',
-        data: { 
-          article: {
-            ...article,
-            categoryDisplayName
-          }
-        }
-      });
-    } catch (error) {
-      logger.error('Update article error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to update article',
-        error: error.message
-      });
     }
-  },
+
+    // Add category display name
+    const categoryDisplayName = await getCategoryDisplayName(article.category);
+
+    logger.info(`Article updated: ${article.headline} by ${req.user.email}`);
+
+    res.json({
+      success: true,
+      message: timeSaver 
+        ? 'Article and TimeSaver updated successfully' 
+        : 'Article updated successfully',
+      data: { 
+        article: {
+          ...article,
+          categoryDisplayName
+        },
+        timeSaver: timeSaver ? {
+          id: timeSaver.id,
+          title: timeSaver.title,
+          linkedArticleId: timeSaver.linkedArticleId
+        } : null
+      }
+    });
+  } catch (error) {
+    logger.error('Update article error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update article',
+      error: error.message
+    });
+  }
+},
 
   // Delete article
   deleteArticle: async (req, res) => {

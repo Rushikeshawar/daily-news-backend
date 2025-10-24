@@ -108,7 +108,7 @@ router.delete(
 router.post(
   '/categories',
   authenticate,
-  authorize('EDITOR', 'AD_MANAGER'),
+  authorize('AD_MANAGER','ADMIN'),
   aiMlController.createCategory
 );
 
@@ -119,7 +119,7 @@ router.post(
 router.put(
   '/categories/:id',
   authenticate,
-  authorize('EDITOR', 'AD_MANAGER'),
+  authorize('AD_MANAGER','ADMIN'),
   genericValidation.id,
   aiMlController.updateCategory
 );
@@ -130,7 +130,7 @@ router.put(
 router.delete(
   '/categories/:id',
   authenticate,
-  authorize('EDITOR', 'AD_MANAGER'),
+  authorize('AD_MANAGER','ADMIN'),
   genericValidation.id,
   aiMlController.deleteCategory
 );

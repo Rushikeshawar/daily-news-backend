@@ -829,8 +829,40 @@ getAiMlCategories: async (req, res) => {
 
   // Create AI/ML article (EDITOR and AD_MANAGER)
   createAiMlArticle: async (req, res) => {
-    try {
-      const {
+  try {
+    const {
+      headline,
+      briefContent,
+      fullContent,
+      category,
+      featuredImage,
+      tags,
+      aiModel,
+      aiApplication,
+      companyMentioned,
+      technologyType,
+      relevanceScore,
+      isTrending = false,
+      // TimeSaver fields (optional)
+      createTimeSaver = true, // Auto-create by default
+      timeSaverTitle,
+      timeSaverSummary,
+      timeSaverKeyPoints,
+      timeSaverContentType = 'AI_ML',
+      timeSaverIconName,
+      timeSaverBgColor,
+      timeSaverIsPriority = false
+    } = req.body;
+
+    if (!headline || !category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Headline and category are required'
+      });
+    }
+
+    const article = await prisma.aiArticle.create({
+      data: {
         headline,
         briefContent,
         fullContent,
@@ -841,51 +873,86 @@ getAiMlCategories: async (req, res) => {
         aiApplication,
         companyMentioned,
         technologyType,
-        relevanceScore,
-        isTrending = false
-      } = req.body;
-
-      if (!headline || !category) {
-        return res.status(400).json({
-          success: false,
-          message: 'Headline and category are required'
-        });
+        relevanceScore: relevanceScore ? parseFloat(relevanceScore) : null,
+        isTrending,
+        publishedAt: new Date(),
+        createdBy: req.user.id
       }
+    });
 
-      const article = await prisma.aiArticle.create({
-        data: {
-          headline,
-          briefContent,
-          fullContent,
-          category,
-          featuredImage,
-          tags,
-          aiModel,
-          aiApplication,
-          companyMentioned,
-          technologyType,
-          relevanceScore: relevanceScore ? parseFloat(relevanceScore) : null,
-          isTrending,
-          publishedAt: new Date(),
-          createdBy: req.user.id
+    // Automatically create TimeSaver content
+    let timeSaver = null;
+    if (createTimeSaver) {
+      try {
+        // Extract key points
+        let keyPointsArray = [];
+        if (timeSaverKeyPoints) {
+          keyPointsArray = Array.isArray(timeSaverKeyPoints) 
+            ? timeSaverKeyPoints 
+            : timeSaverKeyPoints.split(',').map(point => point.trim());
+        } else if (tags) {
+          keyPointsArray = tags.split(',').slice(0, 3).map(tag => tag.trim());
         }
-      });
 
-      logger.info(`AI/ML article created: ${headline} by ${req.user.email} (${req.user.role})`);
+        // Add AI-specific key points if available
+        const aiKeyPoints = [];
+        if (aiModel) aiKeyPoints.push(`AI Model: ${aiModel}`);
+        if (aiApplication) aiKeyPoints.push(`Application: ${aiApplication}`);
+        if (companyMentioned) aiKeyPoints.push(`Company: ${companyMentioned}`);
+        
+        if (aiKeyPoints.length > 0 && keyPointsArray.length === 0) {
+          keyPointsArray = aiKeyPoints;
+        }
 
-      res.status(201).json({
-        success: true,
-        message: 'AI/ML article created successfully',
-        data: { article }
-      });
-    } catch (error) {
-      logger.error('Create AI/ML article error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to create AI/ML article'
-      });
+        timeSaver = await prisma.timeSaverContent.create({
+          data: {
+            title: timeSaverTitle || headline,
+            summary: timeSaverSummary || briefContent?.substring(0, 300) || `AI/ML article about ${category}`,
+            category: category,
+            imageUrl: featuredImage,
+            iconName: timeSaverIconName || 'Brain', // AI-specific icon
+            bgColor: timeSaverBgColor || '#8B5CF6', // Purple for AI
+            keyPoints: keyPointsArray.length > 0 ? keyPointsArray.join(',') : null,
+            contentType: timeSaverContentType,
+            isPriority: timeSaverIsPriority || isTrending,
+            linkedAiArticleId: article.id, // IMPORTANT: Link to the AI article
+            publishedAt: new Date(),
+            createdBy: req.user.id
+          }
+        });
+
+        logger.info(`TimeSaver created automatically for AI/ML article: ${headline}`);
+      } catch (timeSaverError) {
+        logger.error('Failed to create TimeSaver for AI/ML article:', timeSaverError);
+        // Continue even if TimeSaver creation fails
+      }
     }
-  },
+
+    logger.info(`AI/ML article created: ${headline} by ${req.user.email} (${req.user.role})`);
+
+    res.status(201).json({
+      success: true,
+      message: timeSaver 
+        ? 'AI/ML article and TimeSaver created successfully' 
+        : 'AI/ML article created successfully',
+      data: { 
+        article,
+        timeSaver: timeSaver ? {
+          id: timeSaver.id,
+          title: timeSaver.title,
+          linkedAiArticleId: timeSaver.linkedAiArticleId
+        } : null
+      }
+    });
+  } catch (error) {
+    logger.error('Create AI/ML article error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create AI/ML article',
+      error: error.message
+    });
+  }
+},
 
   // Update AI/ML article (EDITOR and AD_MANAGER)
   updateAiMlArticle: async (req, res) => {
@@ -1076,18 +1143,19 @@ createCategory: async (req, res) => {
 },
 
   // Update a category (EDITOR and AD_MANAGER)
-  updateCategory: async (req, res) => {
+  // Update a category (ADMIN and AD_MANAGER)
+updateCategory: async (req, res) => {
   try {
     const { id } = req.params;
     const {
       name,
-      displayName,
       description,
       iconUrl,
-      isHot
+      isHot,
+      articleCount
     } = req.body;
 
-    // Check if category exists in AI categories table
+    // Check if category exists
     const existingCategory = await prisma.aiCategory.findUnique({
       where: { id },
       select: { id: true, name: true }
@@ -1100,25 +1168,15 @@ createCategory: async (req, res) => {
       });
     }
 
-    // Prepare update data
-    const updateData = {};
-    if (name !== undefined) updateData.name = name;
-    if (displayName !== undefined) updateData.displayName = displayName;
-    if (description !== undefined) updateData.description = description;
-    if (iconUrl !== undefined) updateData.iconUrl = iconUrl;
-    if (isHot !== undefined) updateData.isHot = isHot;
-    updateData.updatedAt = new Date();
+    // If name is being changed, check for duplicates
+    if (name && name !== existingCategory.name) {
+      const duplicate = await prisma.$queryRaw`
+        SELECT * FROM ai_categories 
+        WHERE LOWER(name) = LOWER(${name}) AND id != ${id}
+        LIMIT 1
+      `;
 
-    // Check for name conflict if name is being updated
-    if (name !== undefined && name !== existingCategory.name) {
-      const conflictingCategory = await prisma.aiCategory.findFirst({
-        where: {
-          name: { equals: name, mode: 'insensitive' },
-          NOT: { id }
-        }
-      });
-
-      if (conflictingCategory) {
+      if (duplicate.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Category with this name already exists'
@@ -1126,7 +1184,19 @@ createCategory: async (req, res) => {
       }
     }
 
-    const category = await prisma.aiCategory.update({
+    // Build update data object
+    const updateData = {
+      updatedAt: new Date()
+    };
+
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (iconUrl !== undefined) updateData.iconUrl = iconUrl;
+    if (isHot !== undefined) updateData.isHot = isHot;
+    if (articleCount !== undefined) updateData.articleCount = articleCount;
+
+    // Update category
+    const updatedCategory = await prisma.aiCategory.update({
       where: { id },
       data: updateData,
       select: {
@@ -1141,18 +1211,31 @@ createCategory: async (req, res) => {
       }
     });
 
-    logger.info(`AI/ML category updated: ${id} by ${req.user.email} (${req.user.role})`);
+    logger.info(`AI/ML category updated: ${id} by ${req.user?.email || 'unknown'} (${req.user?.role || 'unknown'})`);
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Category updated successfully',
-      data: { category }
+      data: { category: updatedCategory }
     });
   } catch (error) {
-    logger.error('Update AI/ML category error:', error);
+    logger.error('Update AI/ML category error:', {
+      message: error.message,
+      code: error.code,
+      meta: error.meta
+    });
+    
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        message: `Category with this ${error.meta.target} already exists`
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to update category'
+      message: 'Failed to update category',
+      error: error.message
     });
   }
 },
