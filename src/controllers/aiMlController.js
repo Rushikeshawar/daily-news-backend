@@ -955,6 +955,7 @@ getAiMlCategories: async (req, res) => {
 },
 
   // Update AI/ML article (EDITOR and AD_MANAGER)
+ // Update AI/ML article (EDITOR and AD_MANAGER)
   updateAiMlArticle: async (req, res) => {
     try {
       const { id } = req.params;
@@ -991,7 +992,12 @@ getAiMlCategories: async (req, res) => {
       if (fullContent !== undefined) updateData.fullContent = fullContent;
       if (category !== undefined) updateData.category = category;
       if (featuredImage !== undefined) updateData.featuredImage = featuredImage;
-      if (tags !== undefined) updateData.tags = tags;
+      // Convert tags array to comma-separated string
+      if (tags !== undefined) {
+        updateData.tags = Array.isArray(tags) 
+          ? tags.filter(Boolean).join(',') 
+          : tags;
+      }
       if (aiModel !== undefined) updateData.aiModel = aiModel;
       if (aiApplication !== undefined) updateData.aiApplication = aiApplication;
       if (companyMentioned !== undefined) updateData.companyMentioned = companyMentioned;
@@ -1059,30 +1065,37 @@ getAiMlCategories: async (req, res) => {
     }
   },
 
-  // Create a new category (EDITOR and AD_MANAGER)
-  // Create a new AI/ML category (EDITOR and AD_MANAGER)
+// Create a new AI/ML category (ADMIN and AD_MANAGER)
 createCategory: async (req, res) => {
   try {
     const {
       name,
+      displayName,  // <-- Now we handle displayName
       description,
       iconUrl,
       isHot = false,
       articleCount = 0
     } = req.body;
 
-    // Validate required fields
-    if (!name) {
+    // Determine the final name to use in the database
+    let finalName;
+    
+    if (displayName && displayName.trim()) {
+      // Convert displayName to database format (e.g., "Language Models" -> "LANGUAGE_MODELS")
+      finalName = displayName.trim().toUpperCase().replace(/\s+/g, '_');
+    } else if (name && name.trim()) {
+      finalName = name.trim();
+    } else {
       return res.status(400).json({
         success: false,
-        message: 'Name is required'
+        message: 'Name or Display Name is required'
       });
     }
 
     // Check if category with the same name already exists (case-insensitive)
     const existingCategory = await prisma.$queryRaw`
       SELECT * FROM ai_categories 
-      WHERE LOWER(name) = LOWER(${name})
+      WHERE LOWER(name) = LOWER(${finalName})
       LIMIT 1
     `;
 
@@ -1095,7 +1108,7 @@ createCategory: async (req, res) => {
 
     const category = await prisma.aiCategory.create({
       data: {
-        name,
+        name: finalName,  // <-- Use the processed name
         description,
         iconUrl,
         isHot,
@@ -1115,7 +1128,7 @@ createCategory: async (req, res) => {
       }
     });
 
-    logger.info(`AI/ML category created: ${name} by ${req.user?.email || 'unknown'} (${req.user?.role || 'unknown'})`);
+    logger.info(`AI/ML category created: ${finalName} by ${req.user?.email || 'unknown'} (${req.user?.role || 'unknown'})`);
 
     res.status(201).json({
       success: true,
@@ -1142,13 +1155,13 @@ createCategory: async (req, res) => {
   }
 },
 
-  // Update a category (EDITOR and AD_MANAGER)
-  // Update a category (ADMIN and AD_MANAGER)
+// Update a category (ADMIN and AD_MANAGER)
 updateCategory: async (req, res) => {
   try {
     const { id } = req.params;
     const {
       name,
+      displayName,  // <-- Now we handle displayName
       description,
       iconUrl,
       isHot,
@@ -1168,11 +1181,22 @@ updateCategory: async (req, res) => {
       });
     }
 
+    // Determine the final name to use
+    // Priority: displayName (if provided) > name (if provided) > keep existing
+    let finalName = existingCategory.name;
+    
+    if (displayName && displayName.trim()) {
+      // Convert displayName to database format (e.g., "Language Models" -> "LANGUAGE_MODELS")
+      finalName = displayName.trim().toUpperCase().replace(/\s+/g, '_');
+    } else if (name && name.trim()) {
+      finalName = name.trim();
+    }
+
     // If name is being changed, check for duplicates
-    if (name && name !== existingCategory.name) {
+    if (finalName !== existingCategory.name) {
       const duplicate = await prisma.$queryRaw`
         SELECT * FROM ai_categories 
-        WHERE LOWER(name) = LOWER(${name}) AND id != ${id}
+        WHERE LOWER(name) = LOWER(${finalName}) AND id != ${id}
         LIMIT 1
       `;
 
@@ -1186,10 +1210,10 @@ updateCategory: async (req, res) => {
 
     // Build update data object
     const updateData = {
+      name: finalName,  // <-- Always update name based on displayName or name
       updatedAt: new Date()
     };
 
-    if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (iconUrl !== undefined) updateData.iconUrl = iconUrl;
     if (isHot !== undefined) updateData.isHot = isHot;
