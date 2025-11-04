@@ -3,7 +3,7 @@ const prisma = require('../config/database');
 const logger = require('../utils/logger');
 
 const adminController = {
-  // Get system settings
+  // Get system setting
   getSettings: async (req, res) => {
     try {
       const { category } = req.query;
